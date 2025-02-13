@@ -317,6 +317,22 @@ def create_crossmae_model(
         **kwargs
     )
     return model
+def crossmae_vit_large_patch16_224(pretrained_path=None, **kwargs):
+    return create_crossmae_model(
+        img_size=224,
+        patch_size=16,
+        embed_dim=1024,
+        depth=24,
+        encoder_num_heads=16,
+        cross_num_heads=16,
+        mlp_ratio=4.,
+        remove_class_token=True,
+        feature_dim=3,
+        pretrained_path=pretrained_path,
+        **kwargs
+    )
+
+crossmae_vit_large = crossmae_vit_large_patch16_224
 
 if __name__ == "__main__":
     from config import PARAMS
