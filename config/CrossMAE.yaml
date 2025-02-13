@@ -1,0 +1,35 @@
+# config/crossmae.yaml
+
+# 数据集配置
+data_path: ./dataset/train_data_0208
+
+# 训练参数
+batch_size: 16
+epochs: 100
+input_size: 224 
+num_workers: 4
+
+# 模型参数  
+embed_dim: 1024
+depth: 24
+encoder_num_heads: 16
+cross_num_heads: 16
+mlp_ratio: 4
+mask_ratio: 0.0
+feature_dim: 3
+qkv_bias: true
+
+# 优化器参数
+weight_decay: 0.05
+lr: null
+blr": 0.001
+min_lr: 0
+warmup_epochs: 5
+
+# 数据增强参数
+pair_downsample: 0.01
+
+# 路径配置
+output_dir: "./experiment/crossmae/outputs/exp_mr0._bias"
+log_dir: "./experiment/crossmae/logs/exp_mr0._bias"
+mae_pretrained: "./weights/mae_vit_large_patch16_bs64.pth"

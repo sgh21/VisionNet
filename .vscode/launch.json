@@ -1,0 +1,56 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Train CrossMAE",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/cross_mae_train.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}:${workspaceFolder}/src:${env:PYTHONPATH}"
+            },
+            "args": [
+                "--config",
+                "${workspaceFolder}/config/CrossMAE.yaml"
+            ]
+        },
+        {
+            "name": "Python : Current File With Args",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}:${workspaceFolder}/src:${env:PYTHONPATH}"
+            },
+            "args": [
+                "${command:pickArgs}"
+            ]
+        },
+        {
+            "name": "Python: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}:${workspaceFolder}/src:${env:PYTHONPATH}"
+            }
+        },
+        {
+            "name": "Python: Current File Windows",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder};${workspaceFolder}/src;${env:PYTHONPATH}"
+            }
+        }
+    ]
+}
