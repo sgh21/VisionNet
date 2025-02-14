@@ -10,7 +10,7 @@ qkv_bias: true
 
 # 评估参数
 weights: "./weights/crossmae_vit_large_bs16.pth"
-data_path: "./dataset/train_data_0208"
+data_path: "./dataset/train_data_0208/val"
 batch_size: 8
 num_workers: 4
 sample_ratio: 0.02

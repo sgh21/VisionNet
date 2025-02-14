@@ -212,15 +212,22 @@ class CrossMAE(nn.Module):
         self.cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
         
         self.fc_norm = norm_layer(embed_dim)
-        # 回归头
+        # 回归头 目前最为有效的回归头
+        # self.regressor = nn.Sequential(
+        #     nn.Linear(embed_dim * 2, embed_dim),
+        #     nn.ReLU(),
+        #     nn.Dropout(drop_rate),
+        #     nn.Linear(embed_dim, embed_dim//4),
+        #     nn.ReLU(),
+        #     nn.Dropout(drop_rate),
+        #     nn.Linear(embed_dim//4, feature_dim)
+        # )
+        # !: 测试新的回归头的效果
         self.regressor = nn.Sequential(
             nn.Linear(embed_dim * 2, embed_dim),
             nn.ReLU(),
             nn.Dropout(drop_rate),
-            nn.Linear(embed_dim, embed_dim//4),
-            nn.ReLU(),
-            nn.Dropout(drop_rate),
-            nn.Linear(embed_dim//4, feature_dim)
+            nn.Linear(embed_dim, feature_dim)
         )
 
         # 加载Encoeder的预训练权重
@@ -264,7 +271,7 @@ class CrossMAE(nn.Module):
         feat1, _mask1, _id_restore1 = self.encoder(x1, mask_ratio)  # [B, N, C] 
         feat2, _mask2, _id_restore2 = self.encoder(x2, mask_ratio)  # [B, N, C]
         
-        # Cross attention
+        # Cross attention 互相算注意力更有效
         feat1_cross = self.cross_attention(feat1, feat2)  # [B, N, C] 
         feat2_cross = self.cross_attention(feat2, feat1)  # [B, N, C]
         

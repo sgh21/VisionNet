@@ -14,8 +14,8 @@ from pathlib import Path
 class EvalDataset(Dataset):
     def __init__(self, args, transform=None):
         root = args.data_path
-        self.img_dir = os.path.join(root, 'val/images')
-        self.label_dir = os.path.join(root, 'val/labels')
+        self.img_dir = os.path.join(root, 'images')
+        self.label_dir = os.path.join(root, 'labels')
         self.transform = transform
         
         # 按类别组织图片
@@ -208,8 +208,8 @@ def main(args):
 
             # 可视化结果
             for i in range(img1.size(0)):
-                img1_path = os.path.join(args.data_path, 'val/images', img1_name[i])
-                img2_path = os.path.join(args.data_path, 'val/images', img2_name[i])
+                img1_path = os.path.join(args.data_path, 'images', img1_name[i])
+                img2_path = os.path.join(args.data_path, 'images', img2_name[i])
                 save_path = os.path.join(args.output_dir, f'pair_{batch_idx}_{i}.png')
                 
                 visualize_results(
