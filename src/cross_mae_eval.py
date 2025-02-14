@@ -4,6 +4,8 @@ import torchvision.transforms as transforms
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import os
+import yaml
+from tqdm import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
 from models.CrossMAE import create_crossmae_model
@@ -25,7 +27,9 @@ class EvalDataset(Dataset):
             self.class_to_imgs[class_name].append(img_file)
             
         self.pairs = self._generate_pairs()
-
+        import random
+        num_samples = int(len(self.pairs) * args.sample_ratio)
+        self.pairs = random.sample(self.pairs, num_samples)
     def _generate_pairs(self):
         pairs = []
         for class_name, imgs in self.class_to_imgs.items():
@@ -57,25 +61,55 @@ class EvalDataset(Dataset):
         with open(label_path, 'r') as f:
             x, y, rz = map(float, f.read().strip().split(','))
         return torch.tensor([x, y, rz], dtype=torch.float32)
+def get_default_args():
+    """获取默认参数"""
+    parser = get_args_parser()
+    default_args = parser.parse_args([])
+    return default_args
+
+def load_yaml_config(yaml_path):
+    """加载yaml配置并与命令行参数合并"""
+    args = get_default_args()
+    
+    with open(yaml_path, 'r') as f:
+        yaml_cfg = yaml.safe_load(f)
+    
+    if yaml_cfg:
+        for k, v in yaml_cfg.items():
+            if hasattr(args, k):
+                setattr(args, k, v)
+    
+    return args
 
 def get_args_parser():
     parser = argparse.ArgumentParser('CrossMAE eval', add_help=False)
+    # 基本参数
+    parser.add_argument('--config', type=str, default='',
+                        help='path to yaml config file')
     parser.add_argument('--weights', default='', type=str,
                         help='checkpoint path')
-    parser.add_argument('--data_path', default='./data', type=str)
-    parser.add_argument('--batch_size', default=1, type=int)
-    parser.add_argument('--num_workers', default=4, type=int)
+    
+    # 模型参数
     parser.add_argument('--input_size', default=224, type=int)
-    parser.add_argument('--device', default='cuda')
-    parser.add_argument('--output_dir', default='./eval_results')
     parser.add_argument('--embed_dim', default=1024, type=int)
     parser.add_argument('--depth', default=24, type=int)
     parser.add_argument('--encoder_num_heads', default=16, type=int)
-    parser.add_argument('--cross_num_heads', default=8, type=int)
+    parser.add_argument('--cross_num_heads', default=16, type=int)
     parser.add_argument('--mlp_ratio', default=4., type=float)
     parser.add_argument('--feature_dim', default=3, type=int)
     parser.add_argument('--qkv_bias', action='store_true')
+    
+    # 评估参数
+    parser.add_argument('--data_path', default='./data', type=str)
+    parser.add_argument('--batch_size', default=1, type=int)
+    parser.add_argument('--num_workers', default=4, type=int)
+    parser.add_argument('--device', default='cuda')
+    parser.add_argument('--output_dir', default='./eval_results')
+    parser.add_argument('--sample_ratio', default=1.0, type=float)
+    
     return parser
+
+
 
 def visualize_results(img1_path, img2_path, pred, gt, save_path):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
@@ -145,14 +179,15 @@ def main(args):
     
     # 记录评估结果
     all_maes = []
-    
+    # 添加进度条
+    pbar = tqdm(dataloader, desc='Evaluating', ncols=100)
     with torch.no_grad():
         for batch_idx, (img1, img2, label1, label2, img1_name, img2_name) in enumerate(dataloader):
             img1, img2 = img1.to(args.device), img2.to(args.device)
             label1, label2 = label1.to(args.device), label2.to(args.device)
             
             # 预测
-            pred = model(img1, img2)
+            pred = model(img1, img2, mask_ratio=0.0)
             delta_label = label2 - label1
             
             # 反归一化预测值和真实值
@@ -163,6 +198,14 @@ def main(args):
             mae_x, mae_y, mae_rz = calculate_dim_mae(pred, delta_label)
             all_maes.append([mae_x.item(), mae_y.item(), mae_rz.item()])
             
+            # 更新进度条描述
+            pbar.update(1)
+            pbar.set_postfix({
+                'MAE_X': f'{mae_x.item():.4f}',
+                'MAE_Y': f'{mae_y.item():.4f}', 
+                'MAE_Rz': f'{mae_rz.item():.4f}'
+            })
+
             # 可视化结果
             for i in range(img1.size(0)):
                 img1_path = os.path.join(args.data_path, 'val/images', img1_name[i])
@@ -190,9 +233,13 @@ def main(args):
     print(f'mu + 3 * std(X):{three_sigmas[0]:.4f} mm')
     print(f'mu + 3 * std(Y):{three_sigmas[1]:.4f} mm')
     print(f'mu + 3 * std(Rz):{three_sigmas[2]:.4f} deg')
-
+    pbar.close()
 if __name__ == '__main__':
     args = get_args_parser().parse_args()
+    
+    if args.config:
+        args = load_yaml_config(args.config)
+        
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     main(args)
