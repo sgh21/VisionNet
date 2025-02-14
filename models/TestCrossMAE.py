@@ -88,7 +88,7 @@ class MAEEncoder(nn.Module):
         imgs = x.reshape(shape=(x.shape[0], 3, h * p, h * p))
         return imgs
 
-    def random_masking(self, x, mask_ratio):
+    def random_masking(self, x, mask_ratio, keep_mask = None):
         """
         Perform per-sample random masking by per-sample shuffling.
         Per-sample shuffling is done by argsort random noise.
@@ -96,15 +96,22 @@ class MAEEncoder(nn.Module):
         """
         N, L, D = x.shape  # batch, length, dim
         len_keep = int(L * (1 - mask_ratio))
-        
-        noise = torch.rand(N, L, device=x.device)  # noise in [0, 1]
-        
-        # sort noise for each sample
-        ids_shuffle = torch.argsort(noise, dim=1)  # ascend: small is keep, large is remove
-        ids_restore = torch.argsort(ids_shuffle, dim=1)
 
-        # keep the first subset
-        ids_keep = ids_shuffle[:, :len_keep]
+        if keep_mask is None:
+            noise = torch.rand(N, L, device=x.device)  # noise in [0, 1]
+            
+            # sort noise for each sample
+            ids_shuffle = torch.argsort(noise, dim=1)  # ascend: small is keep, large is remove
+            ids_restore = torch.argsort(ids_shuffle, dim=1)
+
+            # keep the first subset
+            ids_keep = ids_shuffle[:, :len_keep]
+
+        else:
+            assert keep_mask['ids_keep'].shape == (N, len_keep) and keep_mask['ids_restore'].shape == (N, L)
+            ids_keep = keep_mask['ids_keep']
+            ids_restore = keep_mask['ids_restore']
+
         x_masked = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
 
         # generate the binary mask: 0 is keep, 1 is remove
@@ -113,9 +120,9 @@ class MAEEncoder(nn.Module):
         # unshuffle to get the binary mask
         mask = torch.gather(mask, dim=1, index=ids_restore)
 
-        return x_masked, mask, ids_restore
+        return x_masked, mask, ids_restore, ids_keep
 
-    def forward_encoder(self, x, mask_ratio):
+    def forward_encoder(self, x, mask_ratio, keep_mask = None):
         # embed patches
         x = self.patch_embed(x) # (N, L, D) (1, 14*14, 1024)
 
@@ -123,8 +130,9 @@ class MAEEncoder(nn.Module):
         x = x + self.pos_embed[:, 1:, :]
 
         # masking: length -> length * mask_ratio
-        x, mask, ids_restore = self.random_masking(x, mask_ratio)
-
+        
+        x, mask, ids_restore, ids_keep = self.random_masking(x, mask_ratio, keep_mask = keep_mask)
+        
         # append cls token
         cls_token = self.cls_token + self.pos_embed[:, :1, :]
         cls_tokens = cls_token.expand(x.shape[0], -1, -1)
@@ -137,11 +145,11 @@ class MAEEncoder(nn.Module):
 
         if self.remove_class_token:
             x = x[:, 1:, :]  # remove class token
-        return x, mask, ids_restore
+        return x, mask, ids_restore, ids_keep
 
-    def forward(self, imgs, mask_ratio=0.75):
-        latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio)
-        return latent, mask, ids_restore
+    def forward(self, imgs, mask_ratio=0.75, keep_mask = None):
+        latent, mask, ids_restore, ids_keep = self.forward_encoder(imgs, mask_ratio, keep_mask = keep_mask)
+        return latent, mask, ids_restore, ids_keep
 
 
 
@@ -212,7 +220,6 @@ class CrossMAE(nn.Module):
         self.cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
         
         self.fc_norm = norm_layer(embed_dim)
-        
         # 回归头 目前最为有效的回归头
         self.regressor = nn.Sequential(
             nn.Linear(embed_dim * 2, embed_dim),
@@ -223,6 +230,14 @@ class CrossMAE(nn.Module):
             nn.Dropout(drop_rate),
             nn.Linear(embed_dim//4, feature_dim)
         )
+
+        # !: 测试新的回归头的效果
+        # self.regressor = nn.Sequential(
+        #     nn.Linear(embed_dim * 2, embed_dim//2),
+        #     nn.ReLU(),
+        #     nn.Dropout(drop_rate),
+        #     nn.Linear(embed_dim//2, feature_dim)
+        # )
 
         # 加载Encoeder的预训练权重
         if pretrained_path is not None:
@@ -262,9 +277,15 @@ class CrossMAE(nn.Module):
 
     def forward(self, x1, x2, mask_ratio=0.75):
         # Encoder features
-        feat1, _mask1, _id_restore1 = self.encoder(x1, mask_ratio)  # [B, N, C] 
-        feat2, _mask2, _id_restore2 = self.encoder(x2, mask_ratio)  # [B, N, C]
+        feat1, _mask1, _id_restore1, _ids_keep1 = self.encoder(x1, mask_ratio)  # [B, N, C] 
+        keep_mask = {
+            'ids_keep': _ids_keep1,
+            'ids_restore': _id_restore1
+        }
+        feat2, _mask2, _id_restore2, _ids_keep2 = self.encoder(x2, mask_ratio, keep_mask)  # [B, N, C]
         
+        assert torch.sum(_mask1-_mask2) < 1e-6
+
         # Cross attention 互相算注意力更有效
         feat1_cross = self.cross_attention(feat1, feat2)  # [B, N, C] 
         feat2_cross = self.cross_attention(feat2, feat1)  # [B, N, C]

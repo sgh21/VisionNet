@@ -15,7 +15,7 @@ depth: 24
 encoder_num_heads: 16
 cross_num_heads: 16 # 头数变大，模型参数变多，训练时间变长，但模型性能基本不变
 mlp_ratio: 4
-mask_ratio: 0.0 # 在下游任务时，默认不使用mask
+mask_ratio: 0.75 # 在下游任务时，默认不使用mask
 feature_dim: 3
 qkv_bias: true # 带bias会些许提高模型性能
 
@@ -30,6 +30,6 @@ warmup_epochs: 5 # warmup没有太明显的影响，设置1范围为5-10%的范�
 pair_downsample: 0.01
 
 # 路径配置
-output_dir: "./experiment/crossmae/outputs/exp_mr0._bias"
-log_dir: "./experiment/crossmae/logs/exp_mr0._bias"
+output_dir: "./experiment/crossmae/outputs/exp_mr0.75_bias"
+log_dir: "./experiment/crossmae/logs/exp_mr0.75_bias"
 mae_pretrained: "./weights/mae_vit_large_patch16_bs64.pth"
