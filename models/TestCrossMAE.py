@@ -249,6 +249,8 @@ class CrossMAE(nn.Module):
         # !: 需要检查注意力模块儿是对谁进行注意力计算的
         self.cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
         
+        self.query_norm = norm_layer(embed_dim)
+        self.context_norm = norm_layer(embed_dim)
         self.fc_norm = norm_layer(embed_dim)
 
         # !: 测试新的回归头的效果 证明回归头简单反而效果更好
@@ -284,7 +286,11 @@ class CrossMAE(nn.Module):
             elif 'bias' in name:
                 torch.nn.init.constant_(p, 0)
 
-        # 初始化fc_norm
+        # 初始化LayerNorm
+        torch.nn.init.constant_(self.query_norm.bias, 0)
+        torch.nn.init.constant_(self.query_norm.weight, 1.0)
+        torch.nn.init.constant_(self.context_norm.bias, 0)
+        torch.nn.init.constant_(self.context_norm.weight, 1.0)
         torch.nn.init.constant_(self.fc_norm.bias, 0)
         torch.nn.init.constant_(self.fc_norm.weight, 1.0)
 
@@ -309,8 +315,9 @@ class CrossMAE(nn.Module):
         # Cross attention 互相算注意力更有效
         # !: 根据官方的实现，在交叉注意力前加入了LayerNorm
         # *： 测试表明，加入LayerNorm后效果没有明显变化
-        feat1_cross = self.cross_attention(self.fc_norm(feat1), self.fc_norm(feat2))  # [B, N, C] 
-        feat2_cross = self.cross_attention(self.fc_norm(feat2), self.fc_norm(feat1))  # [B, N, C]
+        # !: 归一化层似乎用错了，对于query和context应该使用不同的归一化层
+        feat1_cross = self.cross_attention(self.query_norm(feat1), self.context_norm(feat2))  # [B, N, C] 
+        feat2_cross = self.cross_attention(self.query_norm(feat2), self.context_norm(feat1))  # [B, N, C]
         
         # Feature fusion
         feat1_fusion = feat1_cross.mean(dim=1)  # [B, C]

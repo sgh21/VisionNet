@@ -94,12 +94,12 @@ class SpatialOutputAdapter(nn.Module):
         self.P_H = max(1, self.patch_size_full[0] // stride_level)
         self.P_W = max(1, self.patch_size_full[1] // stride_level)
 
-        # *：
+        # *：任务编码，将任务语义信息编码到特征向量中
         if context_tasks is not None:
             self.task_embeddings = nn.ParameterDict(
                 {task: nn.Parameter(torch.zeros(1, 1, self.dim_tokens)) for task in context_tasks})
             for embedding in self.task_embeddings.values():
-                trunc_normal_(embedding, std=0.02)
+                trunc_normal_(embedding, std=0.02) # 初始化任务嵌入为正态分布
 
         self.mask_token = nn.Parameter(torch.zeros(1, 1, self.dim_tokens))
 
@@ -136,6 +136,7 @@ class SpatialOutputAdapter(nn.Module):
         else:
             self.decoder_transformer = nn.Identity()
 
+        # *：这里的num_channels等于任务数，即每个任务对应一个通道
         self.dim_patch = self.num_channels * self.P_H * self.P_W
         self.out_proj = nn.Linear(self.dim_tokens, self.dim_patch)
 
