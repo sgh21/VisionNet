@@ -27,7 +27,7 @@ from torch.distributions.dirichlet import Dirichlet
 
 from utils.registry import register_model
 
-from .MutilMAEUtils import Block, trunc_normal_
+from .multimae_utils import Block, trunc_normal_
 
 __all__ = [
     'pretrain_multimae_base',
@@ -89,8 +89,7 @@ class MultiMAE(nn.Module):
         self.global_tokens = nn.Parameter(torch.zeros(1, num_global_tokens, dim_tokens))
         trunc_normal_(self.global_tokens, std=0.02)
         
-        # Transformer encoder 
-        # *: dpr是一个list，长度为depth，每个元素是一个0到drop_path_rate的等差数列，用于随机丢弃
+        # Transformer encoder
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         self.encoder = nn.Sequential(*[
             Block(dim=dim_tokens, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,

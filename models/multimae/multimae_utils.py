@@ -82,7 +82,7 @@ def _no_grad_trunc_normal_(tensor, mean, std, a, b):
 
 
 def trunc_normal_(tensor, mean=0., std=1., a=-2., b=2.):
-    ## type: (Tensor, float, float, float, float) -> Tensor
+    # type: (Tensor, float, float, float, float) -> Tensor
     r"""Fills the input Tensor with values drawn from a truncated
     normal distribution. The values are effectively drawn from the
     normal distribution :math:`\mathcal{N}(\text{mean}, \text{std}^2)`
@@ -247,6 +247,7 @@ class DecoderBlock(nn.Module):
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
     def forward(self, x, context):
+        # *:特殊的Transformers的Block
         x = x + self.drop_path(self.self_attn(self.norm1(x)))
         x = x + self.drop_path(self.cross_attn(self.query_norm(x), self.context_norm(context)))
         x = x + self.drop_path(self.mlp(self.norm2(x)))

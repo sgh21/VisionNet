@@ -250,24 +250,14 @@ class CrossMAE(nn.Module):
         self.cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
         
         self.fc_norm = norm_layer(embed_dim)
-        # 回归头 目前最为有效的回归头
-        self.regressor = nn.Sequential(
-            nn.Linear(embed_dim * 2, embed_dim),
-            nn.ReLU(),
-            nn.Dropout(drop_rate),
-            nn.Linear(embed_dim, embed_dim//4),
-            nn.ReLU(),
-            nn.Dropout(drop_rate),
-            nn.Linear(embed_dim//4, feature_dim)
-        )
 
         # !: 测试新的回归头的效果 证明回归头简单反而效果更好
-        # self.regressor = nn.Sequential(
-        #     nn.Linear(embed_dim * 2, embed_dim//2),
-        #     nn.ReLU(),
-        #     nn.Dropout(drop_rate),
-        #     nn.Linear(embed_dim//2, feature_dim)
-        # )
+        self.regressor = nn.Sequential(
+            nn.Linear(embed_dim * 2, embed_dim),
+            nn.GELU(),# !: 使用GELU激活函数，进行测试
+            nn.Dropout(drop_rate),
+            nn.Linear(embed_dim, feature_dim)
+        )
 
         # 加载Encoeder的预训练权重
         if pretrained_path is not None:
@@ -318,6 +308,7 @@ class CrossMAE(nn.Module):
 
         # Cross attention 互相算注意力更有效
         # !: 根据官方的实现，在交叉注意力前加入了LayerNorm
+        # *： 测试表明，加入LayerNorm后效果没有明显变化
         feat1_cross = self.cross_attention(self.fc_norm(feat1), self.fc_norm(feat2))  # [B, N, C] 
         feat2_cross = self.cross_attention(self.fc_norm(feat2), self.fc_norm(feat1))  # [B, N, C]
         
