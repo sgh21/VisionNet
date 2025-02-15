@@ -22,7 +22,7 @@ qkv_bias: true # 带bias会些许提高模型性能
 # 优化器参数
 weight_decay: 0.05
 lr: null
-blr: 0.001 # 优化器的学习率
+blr: 0.001 # 优化器的学习率，学习率低收敛快，但容易陷入局部最优，减小学习率可以提高模型最终性能
 min_lr: 0
 warmup_epochs: 5 # warmup没有太明显的影响，设置1范围为5-10%的范围即可
 

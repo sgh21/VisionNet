@@ -151,7 +151,37 @@ class MAEEncoder(nn.Module):
         latent, mask, ids_restore, ids_keep = self.forward_encoder(imgs, mask_ratio, keep_mask = keep_mask)
         return latent, mask, ids_restore, ids_keep
 
+# class CrossAttention(nn.Module):
+#     # !: 使用非官方实现的多头交叉注意力
+#     def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0.):
+#         super().__init__()
+#         self.num_heads = num_heads
+#         head_dim = dim // num_heads
+#         self.scale = head_dim ** -0.5
 
+#         self.q = nn.Linear(dim, dim, bias=qkv_bias)
+#         self.kv = nn.Linear(dim, dim * 2, bias=qkv_bias)
+
+#         self.attn_drop = nn.Dropout(attn_drop)
+#         self.proj = nn.Linear(dim, dim)
+#         self.proj_drop = nn.Dropout(proj_drop)
+
+#     def forward(self, x, context):
+#         B, N, C = x.shape
+#         _, M, _ = context.shape
+
+#         q = self.q(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+#         kv = self.kv(context).reshape(B, M, 2, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+#         k, v = kv[0], kv[1]
+
+#         attn = (q @ k.transpose(-2, -1)) * self.scale
+#         attn = attn.softmax(dim=-1)
+#         attn = self.attn_drop(attn)
+
+#         x = (attn @ v).transpose(1, 2).reshape(B, N, -1)
+#         x = self.proj(x)
+#         x = self.proj_drop(x)
+#         return x
 
 class CrossAttention(nn.Module):
     """使用PyTorch官方实现的多头交叉注意力"""
@@ -231,7 +261,7 @@ class CrossMAE(nn.Module):
             nn.Linear(embed_dim//4, feature_dim)
         )
 
-        # !: 测试新的回归头的效果
+        # !: 测试新的回归头的效果 证明回归头简单反而效果更好
         # self.regressor = nn.Sequential(
         #     nn.Linear(embed_dim * 2, embed_dim//2),
         #     nn.ReLU(),
@@ -287,8 +317,9 @@ class CrossMAE(nn.Module):
         assert torch.sum(_mask1-_mask2) < 1e-6
 
         # Cross attention 互相算注意力更有效
-        feat1_cross = self.cross_attention(feat1, feat2)  # [B, N, C] 
-        feat2_cross = self.cross_attention(feat2, feat1)  # [B, N, C]
+        # !: 根据官方的实现，在交叉注意力前加入了LayerNorm
+        feat1_cross = self.cross_attention(self.fc_norm(feat1), self.fc_norm(feat2))  # [B, N, C] 
+        feat2_cross = self.cross_attention(self.fc_norm(feat2), self.fc_norm(feat1))  # [B, N, C]
         
         # Feature fusion
         feat1_fusion = feat1_cross.mean(dim=1)  # [B, C]
