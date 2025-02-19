@@ -10,7 +10,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from models.CrossMAE import create_crossmae_model
 from pathlib import Path
-
 class EvalDataset(Dataset):
     def __init__(self, args, transform=None):
         root = args.data_path

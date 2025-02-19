@@ -1,10 +1,8 @@
-# config/crossmae.yaml
-
 # 数据集配置
-data_path: ./dataset/train_data_0208
+data_path: ./dataset/train_data_0218
 
 # 训练参数
-batch_size: 4
+batch_size: 2
 epochs: 100     # epochs 增大只会使训练时间变长，不会提高模型性能
 input_size: 224 
 num_workers: 4
@@ -13,7 +11,7 @@ num_workers: 4
 embed_dim: 1024
 depth: 24
 encoder_num_heads: 16
-cross_num_heads: 16 # 头数变大，模型参数变多，训练时间变长，但模型性能基本不变
+cross_num_heads: 8 # 头数变大，模型参数变多，训练时间变长，但模型性能基本不变
 mlp_ratio: 4
 mask_ratio: 0.0 # 在下游任务时，默认不使用mask
 feature_dim: 3
@@ -32,4 +30,6 @@ pair_downsample: 0.01
 # 路径配置
 output_dir: "./experiment/crossmae/outputs/exp_mr0.75_bias"
 log_dir: "./experiment/crossmae/logs/exp_mr0.75_bias"
-mae_pretrained: "./weights/rgb_mae_vit_large_bs64_400e.pth"
+mae_pretrained: 
+  - "./weights/rgb_mae_vit_large_bs64_400e.pth"
+  - "./weights/touch_mae_vit_large_bs64_1600e_l1.pth"

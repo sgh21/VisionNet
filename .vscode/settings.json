@@ -4,17 +4,19 @@
     "python.autoComplete.extraPaths": [
         "${workspaceFolder}",
         "${workspaceFolder}/src",
+        "${workspaceFolder}/models",
         "/home/sgh/data/WorkSpace/ultralytics"
     ],
     "python.analysis.extraPaths": [
         "${workspaceFolder}",
         "${workspaceFolder}/src",
+        "${workspaceFolder}/models",
         "/home/sgh/data/WorkSpace/ultralytics"
     ],
     "terminal.integrated.env.linux": {
-        "PYTHONPATH": "${workspaceFolder}:${workspaceFolder}/src"
+        "PYTHONPATH": "${workspaceFolder}:${workspaceFolder}/src:${workspaceFolder}/models"
     },
     "terminal.integrated.env.windows": {
-        "PYTHONPATH": "${workspaceFolder};${workspaceFolder}/src"
+        "PYTHONPATH": "${workspaceFolder};${workspaceFolder}/src;${workspaceFolder}/models"
     }
 }

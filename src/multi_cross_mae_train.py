@@ -20,32 +20,46 @@ import timm.optim.optim_factory as optim_factory
 import utils.misc as misc
 import utils.lr_sched as lr_sched
 from utils.misc import NativeScalerWithGradNormCount as NativeScaler
-from models.TestCrossMAE import create_crossmae_model
+from models.MultiCrossMAE import multicrossmae_vit_large
+class MultiCrossMAEDataset(Dataset):
+    """
+    MultiCrossMAE训练数据集
+    format:
+        root_dir/train/rgb_images/image_type_index.png
+        root_dir/train/touch_images/gel_image_type_index.png
+        root_dir/train/labels/image_type_index.txt
 
-class CrossMAEDataset(Dataset):
-    """CrossMAE训练数据集"""
-    def __init__(self, config, is_train=True, transform=None):
+        root_dir/val/rgb_images/image_type_index.png
+        root_dir/val/touch_images/gel_image_type_index.png
+        root_dir/val/labels/image_type_index.txt
+    return:
+        rgb_img1, rgb_img2, touch_img1, touch_img2, label1, label2
+    """
+    def __init__(self, config, is_train=True, rgb_transform=None, touch_transform=None):
         self.is_train = is_train
         root = os.path.join(config.data_path, 'train' if is_train else 'val')
-        self.img_dir = os.path.join(root, 'images')
+        self.rgb_img_dir = os.path.join(root, 'rgb_images')
+        self.touch_img_dir = os.path.join(root, 'touch_images')
         self.label_dir = os.path.join(root, 'labels')
         self.sample_ratio = config.pair_downsample
         
         # 按类别组织图片
         self.class_to_imgs = {}
-        for img_file in os.listdir(self.img_dir):
+        for img_file in os.listdir(self.rgb_img_dir):
             class_name = img_file.split('_')[1]  # 根据文件名获取类别
             if class_name not in self.class_to_imgs:
                 self.class_to_imgs[class_name] = []
             self.class_to_imgs[class_name].append(img_file)
             
         # 生成所有可能的图片对
-        self.pairs = self._generate_pairs()
-        self.transform = transform
+        self.rgb_pairs,self.touch_pairs = self._generate_pairs()
+        self.rgb_transform = rgb_transform
+        self.touch_transform = touch_transform
 
     def _generate_pairs(self):
         """生成训练/验证图片对"""
-        pairs = []
+        rgb_pairs = []
+        touch_pairs = []
         for class_name, imgs in self.class_to_imgs.items():
             class_pairs = [(imgs[i], imgs[j]) 
                           for i in range(len(imgs))
@@ -55,33 +69,44 @@ class CrossMAEDataset(Dataset):
                 num_samples = int(len(class_pairs) * self.sample_ratio)
                 if num_samples > 0:
                     class_pairs = random.sample(class_pairs, num_samples)
-            pairs.extend(class_pairs)
-        return pairs
+            rgb_pairs.extend(class_pairs)
+        
+        touch_pairs = [('gel_' + img1, 'gel_' + img2) for img1, img2 in rgb_pairs]
 
+        return rgb_pairs,touch_pairs
+    
     def __len__(self):
-        return len(self.pairs)
+        return len(self.rgb_pairs)
     
     def __getitem__(self, idx):
-        img1_name, img2_name = self.pairs[idx]
-        
+        rgb_img1_name, rgb_img2_name = self.rgb_pairs[idx]
+        touch_img1_name, touch_img2_name = self.touch_pairs[idx]
+
         # 加载图片
-        img1 = Image.open(os.path.join(self.img_dir, img1_name)).convert('RGB')
-        img2 = Image.open(os.path.join(self.img_dir, img2_name)).convert('RGB')
-        
-        if self.transform:
-            img1 = self.transform(img1)
-            img2 = self.transform(img2)
+        rgb_img1 = Image.open(os.path.join(self.rgb_img_dir, rgb_img1_name)).convert('RGB')
+        rgb_img2 = Image.open(os.path.join(self.rgb_img_dir, rgb_img2_name)).convert('RGB')
+        touch_img1 = Image.open(os.path.join(self.touch_img_dir, touch_img1_name)).convert('RGB')
+        touch_img2 = Image.open(os.path.join(self.touch_img_dir, touch_img2_name)).convert('RGB')
+
+        if self.rgb_transform:
+            rgb_img1 = self.rgb_transform(rgb_img1)
+            rgb_img2 = self.rgb_transform(rgb_img2)
+        if self.touch_transform:
+            touch_img1 = self.touch_transform(touch_img1)
+            touch_img2 = self.touch_transform(touch_img2)
         
         # 加载标签
-        label1 = self._load_label(os.path.join(self.label_dir, img1_name.replace('.png', '.txt')))
-        label2 = self._load_label(os.path.join(self.label_dir, img2_name.replace('.png', '.txt')))
+        label1 = self._load_label(os.path.join(self.label_dir, rgb_img1_name.replace('.png', '.txt')))
+        label2 = self._load_label(os.path.join(self.label_dir, rgb_img2_name.replace('.png', '.txt')))
         
-        return img1, img2, label1, label2
+        return rgb_img1, rgb_img2, touch_img1, touch_img2, label1, label2
 
     def _load_label(self, label_path):
         with open(label_path, 'r') as f:
             x, y, rz = map(float, f.read().strip().split(','))
         return torch.tensor([x, y, rz], dtype=torch.float32)
+    
+
 
 def get_default_args():
     """获取默认参数"""
@@ -189,18 +214,21 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
     if log_writer is not None:
         print('log_dir: {}'.format(log_writer.log_dir))
 
-    for data_iter_step, (img1, img2, label1, label2) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    for data_iter_step, (rgb_img1, rgb_img2, touch_img1, touch_img2,label1, label2) \
+    in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         # 每累积一定步数调整学习率
         if data_iter_step % accum_iter == 0:
             lr_sched.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, args)
 
-        img1 = img1.to(device, non_blocking=True)
-        img2 = img2.to(device, non_blocking=True)
+        rgb_img1 = rgb_img1.to(device, non_blocking=True)
+        rgb_img2 = rgb_img2.to(device, non_blocking=True)
+        touch_img1 = touch_img1.to(device, non_blocking=True)
+        touch_img2 = touch_img2.to(device, non_blocking=True)
         label1 = label1.to(device, non_blocking=True)
         label2 = label2.to(device, non_blocking=True)
 
         with torch.cuda.amp.autocast():  # 混合精度训练
-            pred = model(img1, img2, args.mask_ratio)  # 模型输出
+            pred = model(rgb_img1, rgb_img2,touch_img1, touch_img2, args.mask_ratio)  # 模型输出
             delta_label = label2 - label1  # 计算标签的差值
             
             # 归一化标签
@@ -250,16 +278,19 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
     total_rz_mae = 0
 
     with torch.no_grad():  # 在验证过程中不计算梯度
-        for img1, img2, label1, label2 in metric_logger.log_every(data_loader, 20, header):
-            img1 = img1.to(device, non_blocking=True)
-            img2 = img2.to(device, non_blocking=True)
+        for rgb_img1, rgb_img2, touch_img1, touch_img2, label1, label2 in metric_logger.log_every(data_loader, 20, header):
+            
+            rgb_img1 = rgb_img1.to(device, non_blocking=True)
+            rgb_img2 = rgb_img2.to(device, non_blocking=True)
+            touch_img1 = touch_img1.to(device, non_blocking=True)
+            touch_img2 = touch_img2.to(device, non_blocking=True)
             label1 = label1.to(device, non_blocking=True)
             label2 = label2.to(device, non_blocking=True)
 
-            batch_size = img1.size(0)
+            batch_size = rgb_img1.size(0)
             
             with torch.cuda.amp.autocast():  # 混合精度验证
-                pred = model(img1, img2, args.mask_ratio)
+                pred = model(rgb_img1, rgb_img2, touch_img1, touch_img2, args.mask_ratio)
                 delta_label = label2 - label1
                 
                 # 归一化标签
@@ -319,21 +350,33 @@ def main(args):
     np.random.seed(seed)
 
     # 构建数据增强
-    transform_train = transforms.Compose([
+    rgb_transform_train = transforms.Compose([
+        transforms.Resize((args.input_size, args.input_size)),
+        # transforms.RandomResizedCrop(args.input_size, scale=(0.2, 1.0), interpolation=3),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+    touch_transform_train = transforms.Compose([
         transforms.Resize((args.input_size, args.input_size)),
         # transforms.RandomResizedCrop(args.input_size, scale=(0.2, 1.0), interpolation=3),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-    transform_val = transforms.Compose([
+    rgb_transform_val = transforms.Compose([
         transforms.Resize((args.input_size, args.input_size)), 
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
+    touch_transform_val = transforms.Compose([
+        transforms.Resize((args.input_size, args.input_size)), 
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+
+    dataset_train = MultiCrossMAEDataset(args, is_train=True, rgb_transform=rgb_transform_train, touch_transform=touch_transform_train)
+    dataset_val = MultiCrossMAEDataset(args, is_train=False, rgb_transform=rgb_transform_val, touch_transform=touch_transform_val)
     
-    dataset_train = CrossMAEDataset(args, is_train=True, transform=transform_train)
-    dataset_val = CrossMAEDataset(args, is_train=False, transform=transform_val)
 
     # 使用普通随机采样器
     sampler_train = torch.utils.data.RandomSampler(dataset_train)
@@ -364,7 +407,7 @@ def main(args):
     )
 
     # 创建模型
-    model = create_crossmae_model(
+    model = multicrossmae_vit_large(
         img_size=args.input_size,
         embed_dim=args.embed_dim,
         depth=args.depth,

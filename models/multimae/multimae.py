@@ -254,7 +254,7 @@ class MultiMAE(nn.Module):
         for domain, tensor in input_task_tokens.items():
             num_tokens = tensor.shape[1]
             d = {
-                'num_tokens': num_tokens,
+                'num_tokens': num_tokens, # *： 单个任务的token数量 196
                 'has_2d_posemb': True,  # TODO: Modify when adding non-2D tasks
                 'start_idx': i,
                 'end_idx': i + num_tokens,
@@ -263,8 +263,8 @@ class MultiMAE(nn.Module):
             input_info['tasks'][domain] = d
 
         input_info['image_size'] = image_size
-        input_info['num_task_tokens'] = i
-        input_info['num_global_tokens'] = self.num_global_tokens
+        input_info['num_task_tokens'] = i # *： 所有任务的token数量 196*3
+        input_info['num_global_tokens'] = self.num_global_tokens # *： 全局token数量 1
 
         return input_info
 
@@ -314,17 +314,19 @@ class MultiMAE(nn.Module):
             for domain, tensor in x.items()
             if domain in self.input_adapters
         }
-
+        # *：生成字典形式的任务信息，包含的关键字有：tasks, image_size, num_task_tokens, num_global_tokens
         input_info = self.generate_input_info(input_task_tokens=input_task_tokens, image_size=(H, W))
 
         # Select random subset of tokens from the chosen input tasks and concatenate them
         if mask_inputs:
+            # !: self.num_encoded_tokens is not defined
             num_encoded_tokens = num_encoded_tokens if num_encoded_tokens is not None else self.num_encoded_tokens
         else:
             num_encoded_tokens = sum([tensor.shape[1] for tensor in input_task_tokens.values()])
 
         ## Generating masks
         if task_masks is None:
+            # *:生成一个字典，每个任务对应一个mask
             task_masks, ids_keep, ids_restore = self.generate_random_masks(
                 input_task_tokens,
                 num_encoded_tokens,
@@ -340,12 +342,13 @@ class MultiMAE(nn.Module):
         input_tokens = torch.cat([task_tokens for task_tokens in input_task_tokens.values()], dim=1)
 
         # Apply mask
+        # *: (B, num_encoded_tokens, dim_tokens),混合了所有任务的token
         input_tokens = torch.gather(input_tokens, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, input_tokens.shape[2]))
-
+        
         # Add global tokens to input tokens
         global_tokens = repeat(self.global_tokens, '() n d -> b n d', b=B)
-        input_tokens = torch.cat([input_tokens, global_tokens], dim=1)
-
+        input_tokens = torch.cat([input_tokens, global_tokens], dim=1) # *: (B, num_encoded_tokens+1, dim_tokens)
+        
         ## Transformer forward pass
         encoder_tokens = self.encoder(input_tokens)
 
@@ -356,7 +359,7 @@ class MultiMAE(nn.Module):
         # Decode tokens for each task using task-specific output adapters
         preds = {
             domain: self.output_adapters[domain](
-                encoder_tokens=encoder_tokens,
+                encoder_tokens=encoder_tokens, # *: (B, num_encoded_tokens+1, dim_tokens)全部的预测输出
                 input_info=input_info,
                 ids_keep=ids_keep,
                 ids_restore=ids_restore,

@@ -4,7 +4,7 @@
 data_path: ./dataset/train_data_0208
 
 # 训练参数
-batch_size: 16
+batch_size: 4
 epochs: 100     # epochs 增大只会使训练时间变长，不会提高模型性能
 input_size: 224 
 num_workers: 4

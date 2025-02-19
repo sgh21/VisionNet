@@ -95,6 +95,7 @@ class SpatialOutputAdapter(nn.Module):
         self.P_W = max(1, self.patch_size_full[1] // stride_level)
 
         # *：任务编码，将任务语义信息编码到特征向量中
+        # *：根据输入的任务名称，创建任务编码，并初始化
         if context_tasks is not None:
             self.task_embeddings = nn.ParameterDict(
                 {task: nn.Parameter(torch.zeros(1, 1, self.dim_tokens)) for task in context_tasks})
@@ -108,7 +109,7 @@ class SpatialOutputAdapter(nn.Module):
         w_posemb = self.image_size[1] // (self.stride_level * self.P_W)
         if not self.learnable_pos_emb:
             self.pos_emb = build_2d_sincos_posemb(h=h_posemb, w=w_posemb, embed_dim=self.dim_tokens)
-            self.pos_emb = nn.Parameter(self.pos_emb, requires_grad=False)
+            self.pos_emb = nn.Parameter(self.pos_emb, requires_grad=False) # *： (1, h_posemb, w_posemb, dim_tokens)
         else:
             self.pos_emb = nn.Parameter(torch.zeros(1, h_posemb, w_posemb, self.dim_tokens))
             trunc_normal_(self.pos_emb, std=0.02)
@@ -136,7 +137,7 @@ class SpatialOutputAdapter(nn.Module):
         else:
             self.decoder_transformer = nn.Identity()
 
-        # *：这里的num_channels等于任务数，即每个任务对应一个通道
+        # *：这里的num_channels是输出任务的通道数，比如RGB任务的通道数是3
         self.dim_patch = self.num_channels * self.P_H * self.P_W
         self.out_proj = nn.Linear(self.dim_tokens, self.dim_patch)
 
@@ -172,13 +173,13 @@ class SpatialOutputAdapter(nn.Module):
 
             if info['has_2d_posemb']:
                 pos_emb = F.interpolate(self.pos_emb, size=size, mode='bilinear', align_corners=False)
-                pos_emb = rearrange(pos_emb, 'b d nh nw -> b (nh nw) d')
+                pos_emb = rearrange(pos_emb, 'b d nh nw -> b (nh nw) d') 
                 assert info['num_tokens'] == pos_emb.shape[1]
-                task_emb = task_emb + pos_emb
+                task_emb = task_emb + pos_emb  # *：(B, 196, dim_tokens)
 
             context_embeddings.append(task_emb)
-
-        context_embeddings = torch.cat(context_embeddings, dim=1)
+        # *：context_embeddings是一个列表，每个元素是一个任务的嵌入，每个任务的嵌入是一个张量，shape=(bs, num_tokens*num_task, dim_tokens)
+        context_embeddings = torch.cat(context_embeddings, dim=1) # *：(B, 196 *3, dim_tokens)
 
         return context_embeddings
 
@@ -190,11 +191,13 @@ class SpatialOutputAdapter(nn.Module):
         N_W = W // (self.stride_level * self.P_W)
 
         if 'num_global_tokens' in input_info:
+            # *： global_tokens类似cls_token但在最后，用于全局信息
             context_tokens_without_global = context_tokens[:, :-input_info['num_global_tokens']]
         else:
-            context_tokens_without_global = context_tokens
+            context_tokens_without_global = context_tokens # (B, N, D)
 
         # Add mask tokens
+        # mask_token.shape = (1, 1, dim_tokens)
         mask_tokens = repeat(self.mask_token, '() () d -> b n d', b=B,
                              n=input_info['num_task_tokens'] - context_tokens_without_global.shape[1])
         context_with_mask = torch.cat([context_tokens_without_global, mask_tokens], dim=1)
@@ -204,15 +207,16 @@ class SpatialOutputAdapter(nn.Module):
                                          index=ids_restore.unsqueeze(-1).repeat(1, 1, context_with_mask.shape[2]))
 
         # Generate context_emb and add them to context
+        # *：(B, 196 *3, dim_tokens) 为每个任务生成任务编码，然后拼接在一起
         context_emb = self.generate_context_embeddings(input_info=input_info, bs=B, size=(N_H, N_W),
                                                        device=context_tokens.device)
-        context_with_mask = context_with_mask + context_emb
+        context_with_mask = context_with_mask + context_emb # *：(B, 196 *3, dim_tokens)：多任务上下文编码
 
         # Generate queries
         if self.use_task_queries and self.task in input_info['tasks']:
             start_idx = input_info['tasks'][self.task]['start_idx']
             end_idx = input_info['tasks'][self.task]['end_idx']
-            queries = context_with_mask[:, start_idx:end_idx]
+            queries = context_with_mask[:, start_idx:end_idx] # *：只取当前任务的tokens
         else:
             queries = repeat(self.mask_token, '() () d -> b n d', b=B, n=N_H * N_W)
             queries_pos_emb = F.interpolate(self.pos_emb, size=(N_H, N_W), mode='bilinear', align_corners=False)
@@ -223,6 +227,7 @@ class SpatialOutputAdapter(nn.Module):
                 queries = queries + queries_task_emb
 
         # Unshuffle context and keep only initial context (yes, again)
+        # *：(B, 196 *3, dim_tokens) -> (B, 98, dim_tokens) : 保留原始的context，去掉mask tokens
         context_tokens_without_global = torch.gather(context_with_mask, dim=1,
                                                      index=ids_keep.unsqueeze(-1).repeat(1, 1, context_with_mask.shape[2]))
 
@@ -233,7 +238,7 @@ class SpatialOutputAdapter(nn.Module):
         else:
             context_tokens = context_tokens_without_global
 
-        return queries, context_tokens
+        return queries, context_tokens # *：(B, 196, dim_tokens), (B, 98, dim_tokens)
 
     def forward(self,
                 encoder_tokens: torch.Tensor,
@@ -257,15 +262,17 @@ class SpatialOutputAdapter(nn.Module):
         N_W = W // (self.stride_level * self.P_W)
 
         # Project encoder tokens to decoder tokens
-        context_tokens = self.proj_context(encoder_tokens)
+        context_tokens = self.proj_context(encoder_tokens) # *：(B, num_encoder_tokens, dim_tokens_enc) -> (B, num_encoder_tokens, dim_tokens)
 
         # Get queries and context
+        # *: queries:(B, 196, dim_tokens) 从context_tokens中抽取的指定任务部分编码 context_tokens: (B, 98, dim_tokens),又加入了任务编码和位置编码
         queries, context_tokens = self.get_queries_and_context(context_tokens, input_info, ids_keep, ids_restore)
 
         # Perform cross attention of queries to context tokens, followed by an MLP
         if self.use_xattn:
+            # *：(B, 196, dim_tokens) -> (B, 196, dim_tokens) 不能交换queries和context_tokens的位置，因为维度不同
             x = self.decoder(self.query_norm(queries), self.context_norm(context_tokens))
-            x = x + self.mlp(self.out_norm(x))
+            x = x + self.mlp(self.out_norm(x)) 
         else:
             x = queries
 
