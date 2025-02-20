@@ -28,18 +28,18 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 def setup_distributed_training(args):
-    if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
-        args.rank = int(os.environ["RANK"])
+    if 'LOCAL_RANK' in os.environ:
+        args.local_rank = int(os.environ['LOCAL_RANK'])
         args.world_size = int(os.environ['WORLD_SIZE'])
-        args.gpu = int(os.environ['LOCAL_RANK'])
+        args.device = torch.device(f'cuda:{args.local_rank}')
     else:
         print('Not using distributed mode')
         args.distributed = False
+        args.device = torch.device('cuda:0')
         return
 
     args.distributed = True
-    torch.cuda.set_device(args.gpu)
-    args.dist_url = 'env://'
+    torch.cuda.set_device(args.local_rank)
     dist.init_process_group(backend='nccl')
 
 def cleanup():
@@ -222,8 +222,6 @@ def get_args_parser():
                         help='number of distributed processes')
     parser.add_argument('--dist_url', default='env://', type=str,
                         help='url used to set up distributed training')
-    parser.add_argument('--gpu', default=None, type=int)
-    parser.add_argument('--rank', default=-1, type=int)
     return parser
 
 loss_norm = [2.5, 2.5, 1]  # x,y,rz的归一化权重
@@ -346,7 +344,14 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                 delta_label_norm = label_normalize(delta_label, loss_norm)
                 pred_norm = label_normalize(pred, loss_norm)
                 loss = criterion(pred_norm, delta_label_norm)
-                
+                if args.distributed:
+                    # !: 在计算loss时需要同步
+                    torch.distributed.barrier()
+                    loss = all_reduce_mean(loss)
+                    mae_x = all_reduce_mean(mae_x)
+                    mae_y = all_reduce_mean(mae_y)
+                    mae_rz = all_reduce_mean(mae_rz)
+
                 # 反归一化并计算MAE
                 delta_label_real = label_denormalize(delta_label_norm, loss_norm)
                 pred_real = label_denormalize(pred_norm, loss_norm)
@@ -435,7 +440,11 @@ def main(args):
     else:
         log_writer = None
     # 修正batch_size计算
-    args.batch_size = int(args.batch_size / args.world_size)
+    total_batch_size = args.batch_size
+    args.batch_size = int(total_batch_size / args.world_size)
+    print(f"\033[1;32;40mTotal batch size: {total_batch_size}, "
+          f"Per GPU batch size: {args.batch_size}\033[0m")
+    
     data_loader_train = DataLoader(
         dataset_train,
         sampler=sampler_train,
@@ -474,7 +483,7 @@ def main(args):
 
     print("Model = %s" % str(model))
 
-    eff_batch_size = args.batch_size * args.accum_iter
+    eff_batch_size = total_batch_size * args.accum_iter
 
     if args.lr is None:
         args.lr = args.blr * eff_batch_size / 256
