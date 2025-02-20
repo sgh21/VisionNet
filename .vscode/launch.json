@@ -2,6 +2,21 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: Train TestMultiCrossMAE",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/test_multi_cross_mae_train.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}:${workspaceFolder}/src:${env:PYTHONPATH}"
+            },
+            "args": [
+                "--config",
+                "${workspaceFolder}/config/TestMultiCrossMAE.yaml"
+            ]
+        },
+        {
             "name": "Python: Train MultiCrossMAE",
             "type": "debugpy",
             "request": "launch",
