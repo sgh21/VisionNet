@@ -12,7 +12,7 @@ class MultiCrossMAE(nn.Module):
         embed_dim=1024,
         depth=24,
         encoder_num_heads=16,
-        cross_num_heads=8,
+        cross_num_heads=16,
         mlp_ratio=4.,
         remove_class_token=True,
         norm_layer=partial(nn.LayerNorm, eps=1e-6),
@@ -190,8 +190,29 @@ def create_multicrossmae_model(
 
 def multicrossmae_vit_large_patch16_224(pretrained_path = None, **kwargs):
     return create_multicrossmae_model(
+        img_size=224,
+        patch_size=16,
+        in_chans=3,
+        embed_dim=1024,
+        depth=24,
+        encoder_num_heads=16,
+        mlp_ratio=4.,
         pretrained_path=pretrained_path,
         **kwargs
     )
 
+def multicrossmae_vit_base_patch16_224(pretrained_path = None, **kwargs):
+    return create_multicrossmae_model(
+        img_size=224,
+        patch_size=16,
+        in_chans=3,
+        embed_dim=768,
+        depth=12,
+        encoder_num_heads=12,
+        mlp_ratio=4.,
+        pretrained_path=pretrained_path,
+        **kwargs
+   )
+
+multicrossmae_vit_base = multicrossmae_vit_base_patch16_224
 multicrossmae_vit_large = multicrossmae_vit_large_patch16_224

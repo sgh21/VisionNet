@@ -21,7 +21,7 @@ import timm.optim.optim_factory as optim_factory
 import utils.misc as misc
 import utils.lr_sched as lr_sched
 from utils.misc import NativeScalerWithGradNormCount as NativeScaler
-from models.MultiCrossMAE import multicrossmae_vit_large
+import models.TestMultiCrossMAE as MultiCrossMAE
 
 # Ensure the following lines are added to enable distributed training
 import torch.distributed as dist
@@ -457,17 +457,12 @@ def main(args):
     )
 
     # Create the model
-    model = multicrossmae_vit_large(
-        img_size=args.input_size,
-        embed_dim=args.embed_dim,
-        depth=args.depth,
-        encoder_num_heads=args.encoder_num_heads,
+    model = MultiCrossMAE.__dict__[args.model](
         cross_num_heads=args.cross_num_heads,
-        mlp_ratio=args.mlp_ratio,
         feature_dim=args.feature_dim,
         pretrained_path=args.mae_pretrained,
         qkv_bias=args.qkv_bias,
-    )
+        )
 
     model.to(args.device)
 

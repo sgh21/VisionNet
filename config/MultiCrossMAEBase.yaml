@@ -8,11 +8,11 @@ input_size: 224
 num_workers: 4
 
 # 模型参数  
-model: multicrossmae_vit_large
-embed_dim: 1024
-depth: 24
-encoder_num_heads: 16
-cross_num_heads: 16 # 头数变大，模型参数变多，训练时间变长，但模型性能基本不变
+model: multicrossmae_vit_base
+embed_dim: 768
+depth: 12
+encoder_num_heads: 12
+cross_num_heads: 12 # 头数变大，模型参数变多，训练时间变长，但模型性能基本不变
 mlp_ratio: 4
 mask_ratio: 0.0 # 在下游任务时，默认不使用mask
 feature_dim: 3
@@ -31,4 +31,4 @@ pair_downsample: 0.01
 # 路径配置
 output_dir: "./experiment/crossmae/outputs/exp_mr0.75_bias"
 log_dir: "./experiment/crossmae/logs/exp_mr0.75_bias"
-mae_pretrained: "./weights/mae_vit_large_touch+rgb_1600e.pth"
+mae_pretrained: "./weights/mae_vit_base_touch+rgb_1600e.pth"
