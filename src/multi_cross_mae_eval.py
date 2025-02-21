@@ -33,7 +33,7 @@ def load_yaml_config(yaml_path):
     return args
 
 def get_args_parser():
-    parser = argparse.ArgumentParser('CrossMAE eval', add_help=False)
+    parser = argparse.ArgumentParser('MultiCrossMAE eval', add_help=False)
     # 基本参数
     parser.add_argument('--config', type=str, default='',
                         help='path to yaml config file')
@@ -56,7 +56,7 @@ def get_args_parser():
     parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--output_dir', default='./eval_results')
-    parser.add_argument('--sample_ratio', default=1.0, type=float)
+    parser.add_argument('--pair_downsample', default=1.0, type=float)
     
     return parser
 
@@ -127,7 +127,6 @@ def main(args):
         cross_num_heads=args.cross_num_heads,
         mlp_ratio=args.mlp_ratio,
         feature_dim=args.feature_dim,
-        pretrained_path=args.mae_pretrained,
         qkv_bias=args.qkv_bias,
     )
     
@@ -146,7 +145,7 @@ def main(args):
     ])
     
     # 创建数据加载器
-    dataset =MultiCrossMAEDataset(args, transform=transform)
+    dataset =MultiCrossMAEDataset(args, is_train = False,rgb_transform=transform, touch_transform=transform, is_eval=True)
     dataloader = DataLoader(
         dataset,
         batch_size=args.batch_size,
@@ -190,10 +189,11 @@ def main(args):
 
             # 可视化结果
             for i in range(rgb_img1.size(0)):
-                rgb_img1_path = os.path.join(args.data_path, 'rgb_images', img1_name[i])
-                rgb_img2_path = os.path.join(args.data_path, 'rgb_images', img2_name[i])
-                touch_img1_path = os.path.join(args.data_path, 'touch_images', 'gel_' + img1_name[i])
-                touch_img2_path = os.path.join(args.data_path, 'touch_images', 'gel_' + img2_name[i])
+                root_path = os.path.join(args.data_path, 'val/')
+                rgb_img1_path = os.path.join(root_path, 'rgb_images', img1_name[i])
+                rgb_img2_path = os.path.join(root_path, 'rgb_images', img2_name[i])
+                touch_img1_path = os.path.join(root_path, 'touch_images', 'gel_' + img1_name[i])
+                touch_img2_path = os.path.join(root_path, 'touch_images', 'gel_' + img2_name[i])
                 save_path = os.path.join(args.output_dir, f'pair_{batch_idx}_{i}.png')
                 
                 visualize_results(

@@ -9,10 +9,10 @@ feature_dim: 3
 qkv_bias: true
 
 # 评估参数
-weights: "./weights/crossmae_vit_large_bs16.pth"
-data_path: "./dataset/train_data_0218/val"
+weights: "./weights/multimae_vit_large_sameed_blr1e-3_bs14.pth"
+data_path: "./dataset/train_data_0218"
 batch_size: 1
 num_workers: 4
-sample_ratio: 0.02
+pair_downsample: 0.02
 device: "cuda"
-output_dir: "./experiment/crossmae/outputs/exp_mr0.0_bias_rgb+touch_sameed/eval_sr0.02"
+output_dir: "./experiment/multicrossmae/outputs/exp_mr0.0_bias_rgb+touch_sameed/eval_sr0.02"

@@ -323,8 +323,8 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
             label1 = label1.to(device, non_blocking=True)
             label2 = label2.to(device, non_blocking=True)
 
-            batch_size = rgb_img1.size(0)
-            
+            batch_size = args.batch_size
+            print("\033[1;36;40m Batch_size per GPU:\033[0m", batch_size)
             with torch.cuda.amp.autocast():  # 混合精度验证
                 pred = model(rgb_img1, rgb_img2, touch_img1, touch_img2, args.mask_ratio)
                 delta_label = label2 - label1
@@ -348,15 +348,17 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                     mae_y = misc.all_reduce_mean(mae_y.item())
                     mae_rz = misc.all_reduce_mean(mae_rz.item())
 
-                total_x_mae += mae_x * batch_size
-                total_y_mae += mae_y * batch_size
-                total_rz_mae += mae_rz * batch_size
-                total_loss += loss_all_reduce * batch_size
+                total_x_mae += mae_x * batch_size * args.world_size
+                total_y_mae += mae_y * batch_size * args.world_size
+                total_rz_mae += mae_rz * batch_size * args.world_size
+                total_loss += loss_all_reduce * batch_size * args.world_size
 
             metric_logger.update(loss=loss_value)  # 更新损失
 
     # 计算平均值
+    
     num_samples = len(data_loader.dataset)
+    print("\033[1;36;40m Total dataset len:\033[0m", num_samples)
     avg_loss = total_loss / num_samples
     avg_x_mae = total_x_mae / num_samples
     avg_y_mae = total_y_mae / num_samples
@@ -439,7 +441,7 @@ def main(args):
     data_loader_train = DataLoader(
         dataset_train,
         sampler=sampler_train,
-        batch_size=args.batch_size,  # Adjust batch size per GPU
+        batch_size=args.batch_size,  
         num_workers=args.num_workers,
         pin_memory=args.pin_mem,
         drop_last=True,

@@ -49,7 +49,7 @@ class MultiCrossMAEDataset(Dataset):
                           for i in range(len(imgs))
                           for j in range(i+1, len(imgs))]
             
-            if self.is_train:  # 训练集下采样
+            if self.is_train or self.is_eval:  # 训练集下采样
                 num_samples = int(len(class_pairs) * self.sample_ratio)
                 if num_samples > 0:
                     class_pairs = random.sample(class_pairs, num_samples)
@@ -82,7 +82,7 @@ class MultiCrossMAEDataset(Dataset):
         # 加载标签
         label1 = self._load_label(os.path.join(self.label_dir, rgb_img1_name.replace('.png', '.txt')))
         label2 = self._load_label(os.path.join(self.label_dir, rgb_img2_name.replace('.png', '.txt')))
-        
+
         if self.is_eval:
             return rgb_img1, rgb_img2, touch_img1, touch_img2, label1, label2, rgb_img1_name, rgb_img2_name
         
