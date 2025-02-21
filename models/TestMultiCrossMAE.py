@@ -44,8 +44,10 @@ class MultiCrossMAE(nn.Module):
         
         # 层归一化
         self.context_norm = norm_layer(embed_dim)
-        self.fc_norm = norm_layer(embed_dim)
+        self.fc_norm = norm_layer(2*embed_dim)
         self.feat_norm = norm_layer(embed_dim)
+        self.rgb_norm = norm_layer(embed_dim)
+        self.touch_norm = norm_layer(embed_dim)
 
         # !: 测试新的回归头的效果 证明回归头简单反而效果更好
         self.regressor = nn.Sequential(
@@ -67,6 +69,10 @@ class MultiCrossMAE(nn.Module):
         torch.nn.init.constant_(self.fc_norm.weight, 1.0)
         torch.nn.init.constant_(self.feat_norm.bias, 0)
         torch.nn.init.constant_(self.feat_norm.weight, 1.0)
+        torch.nn.init.constant_(self.rgb_norm.bias, 0)
+        torch.nn.init.constant_(self.rgb_norm.weight, 1.0)
+        torch.nn.init.constant_(self.touch_norm.bias, 0)
+        torch.nn.init.constant_(self.touch_norm.weight, 1.0)
 
         # 初始化regressor
         for m in self.regressor.modules():
@@ -101,12 +107,13 @@ class MultiCrossMAE(nn.Module):
         # Touch Encoder
         touch_latent, touch_mask, touch_ids_restore, touch_ids_keep = self.encoder(touch_img, mask_ratio, keep_mask=keep_mask)
         
-        # Cross-Modal Cross-Attention
-        context = self.context_norm(torch.cat((rgb_latent, touch_latent), dim=1))
+        # # Cross-Modal Cross-Attention
+        # context = self.context_norm(torch.cat((rgb_latent, touch_latent), dim=1))
         # !:query 都没有进行归一化
-        rgb_query = self.crossmodal_cross_attention(rgb_latent, context)
-        touch_query = self.crossmodal_cross_attention(touch_latent, context)
+        rgb_query = self.crossmodal_cross_attention(self.rgb_norm(rgb_latent), self.touch_norm(touch_latent))
+        touch_query = self.crossmodal_cross_attention(self.touch_norm(touch_latent), self.rgb_norm(rgb_latent))
 
+        # Fusion
         fusion_latent = torch.cat((rgb_query, touch_query), dim=1)
         fusion_latent = self.feat_norm(fusion_latent)
 
@@ -123,12 +130,11 @@ class MultiCrossMAE(nn.Module):
 
         # 对特征降维
         feat1_downsample = feat1_cross.mean(dim=1) # [B, C]
-        feat1_downsample = self.fc_norm(feat1_downsample)
         feat2_downsample = feat2_cross.mean(dim=1) # [B, C]
-        feat2_downsample = self.fc_norm(feat2_downsample)
 
         # 融合特征, 并进行回归
         feat_fusion = torch.cat([feat1_downsample,feat2_downsample],dim = 1) # [B, 2*C]
+        feat_fusion = self.fc_norm(feat_fusion)
 
         # 回归
         pred = self.regressor(feat_fusion)

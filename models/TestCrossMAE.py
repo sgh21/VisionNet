@@ -178,7 +178,7 @@ def crossmae_vit_large_patch16_224(pretrained_path=None, **kwargs):
     )
 
 def crossmae_vit_base_patch16_224(pretrained_path=None, **kwargs):
-    return crossmae_vit_large_patch16_224(
+    return create_crossmae_model(
         img_size=224,
         patch_size=16,
         in_chans=3,
