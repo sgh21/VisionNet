@@ -166,11 +166,32 @@ def create_crossmae_model(
     return model
 def crossmae_vit_large_patch16_224(pretrained_path=None, **kwargs):
     return create_crossmae_model(
+        img_size=224,
+        patch_size=16,
+        in_chans=3,
+        embed_dim=1024,
+        depth=24,
+        encoder_num_heads=16,
+        mlp_ratio=4.,
         pretrained_path=pretrained_path,
         **kwargs
     )
 
+def crossmae_vit_base_patch16_224(pretrained_path=None, **kwargs):
+    return crossmae_vit_large_patch16_224(
+        img_size=224,
+        patch_size=16,
+        in_chans=3,
+        embed_dim=768,
+        depth=12,
+        encoder_num_heads=12,
+        mlp_ratio=4.,
+        pretrained_path=pretrained_path, 
+        **kwargs
+        )
+
 crossmae_vit_large = crossmae_vit_large_patch16_224
+crossmae_vit_base = crossmae_vit_base_patch16_224
 
 if __name__ == "__main__":
     from config import PARAMS
