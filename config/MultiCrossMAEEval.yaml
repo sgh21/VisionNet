@@ -1,0 +1,18 @@
+# 模型参数
+input_size: 224
+embed_dim: 1024
+depth: 24
+encoder_num_heads: 16
+cross_num_heads: 16
+mlp_ratio: 4.0
+feature_dim: 3
+qkv_bias: true
+
+# 评估参数
+weights: "./weights/crossmae_vit_large_bs16.pth"
+data_path: "./dataset/train_data_0218/val"
+batch_size: 1
+num_workers: 4
+sample_ratio: 0.02
+device: "cuda"
+output_dir: "./experiment/crossmae/outputs/exp_mr0.0_bias_rgb+touch_sameed/eval_sr0.02"

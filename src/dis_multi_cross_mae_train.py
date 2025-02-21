@@ -47,12 +47,6 @@ def cleanup():
     if dist.is_initialized():
         dist.destroy_process_group()
 
-def all_reduce_mean(tensor, op=dist.ReduceOp.SUM):
-    """Average loss across all GPUs (sum and then divide by world size)"""
-    dist.all_reduce(tensor, op=op)  # Perform all-reduce operation
-    tensor /= dist.get_world_size()  # Average the tensor across all GPUs
-    return tensor
-
 class MultiCrossMAEDataset(Dataset):
     """
     MultiCrossMAE训练数据集
@@ -278,11 +272,6 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
             delta_label = label_normalize(delta_label, weight=loss_norm)
             pred = label_normalize(pred, weight=loss_norm)
             loss = criterion(pred, delta_label)  # 计算损失
-
-        # 确保loss在多GPU上正确同步
-        if args.distributed:
-            torch.distributed.barrier()
-            loss = all_reduce_mean(loss)
         
         loss_value = loss.item()
 
@@ -304,7 +293,7 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
         lr = optimizer.param_groups[0]["lr"]
         metric_logger.update(lr=lr)  # 更新学习率
 
-        loss_value_reduce = all_reduce_mean(loss_value)  # 计算全局损失
+        loss_value_reduce = misc.all_reduce_mean(loss_value)  # 计算全局损失
         if log_writer is not None and (data_iter_step + 1) % accum_iter == 0:
             epoch_1000x = int((data_iter_step / len(data_loader) + epoch) * 1000)
             log_writer.add_scalar('train_loss', loss_value_reduce, epoch_1000x)
@@ -344,25 +333,27 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                 delta_label_norm = label_normalize(delta_label, loss_norm)
                 pred_norm = label_normalize(pred, loss_norm)
                 loss = criterion(pred_norm, delta_label_norm)
-                if args.distributed:
-                    # !: 在计算loss时需要同步
-                    torch.distributed.barrier()
-                    loss = all_reduce_mean(loss)
-                    mae_x = all_reduce_mean(mae_x)
-                    mae_y = all_reduce_mean(mae_y)
-                    mae_rz = all_reduce_mean(mae_rz)
+                loss_value = loss.item()
 
                 # 反归一化并计算MAE
                 delta_label_real = label_denormalize(delta_label_norm, loss_norm)
                 pred_real = label_denormalize(pred_norm, loss_norm)
                 mae_x, mae_y, mae_rz = calculate_dim_mae(pred_real, delta_label_real)
                 
-                total_x_mae += mae_x.item() * batch_size
-                total_y_mae += mae_y.item() * batch_size
-                total_rz_mae += mae_rz.item() * batch_size
-                total_loss += loss.item() * batch_size
+                if args.distributed:
+                    # !: 在计算loss时需要同步
+                    torch.distributed.barrier()
+                    loss_all_reduce = misc.all_reduce_mean(loss_value)
+                    mae_x = misc.all_reduce_mean(mae_x.item())
+                    mae_y = misc.all_reduce_mean(mae_y.item())
+                    mae_rz = misc.all_reduce_mean(mae_rz.item())
 
-            metric_logger.update(loss=loss.item())  # 更新损失
+                total_x_mae += mae_x * batch_size
+                total_y_mae += mae_y * batch_size
+                total_rz_mae += mae_rz * batch_size
+                total_loss += loss_all_reduce * batch_size
+
+            metric_logger.update(loss=loss_value)  # 更新损失
 
     # 计算平均值
     num_samples = len(data_loader.dataset)
