@@ -110,9 +110,9 @@ def visualize_results(rgb_img1_path, rgb_img2_path, touch_img1_path, touch_img2_
     plt.close()
 
 def calculate_dim_mae(pred, target):
-    mae_x = torch.mean(torch.abs(pred[:,0] - target[:,0]))
-    mae_y = torch.mean(torch.abs(pred[:,1] - target[:,1]))
-    mae_rz = torch.mean(torch.abs(pred[:,2] - target[:,2]))
+    mae_x = torch.abs(pred[:,0] - target[:,0])
+    mae_y = torch.abs(pred[:,1] - target[:,1])
+    mae_rz = torch.abs(pred[:,2] - target[:,2])
     return mae_x, mae_y, mae_rz
 
 def main(args):
@@ -156,7 +156,9 @@ def main(args):
     os.makedirs(args.output_dir, exist_ok=True)
     
     # 记录评估结果
-    all_maes = []
+    all_maes_x = []
+    all_maes_y = []
+    all_maes_rz = []
     # 添加进度条
     pbar = tqdm(dataloader, desc='Evaluating', ncols=100)
     with torch.no_grad():
@@ -171,14 +173,22 @@ def main(args):
             
             # 计算MAE
             mae_x, mae_y, mae_rz = calculate_dim_mae(pred, delta_label)
-            all_maes.append([mae_x.item(), mae_y.item(), mae_rz.item()])
+            # 存储每个样本的MAE
+            all_maes_x.extend(mae_x.cpu().tolist())
+            all_maes_y.extend(mae_y.cpu().tolist())
+            all_maes_rz.extend(mae_rz.cpu().tolist())
             
             # 更新进度条描述
             pbar.update(1)
+            # 显示当前batch的平均值
+            batch_mae_x = mae_x.mean().item()
+            batch_mae_y = mae_y.mean().item()
+            batch_mae_rz = mae_rz.mean().item()
+            
             pbar.set_postfix({
-                'MAE_X': f'{mae_x.item():.4f}',
-                'MAE_Y': f'{mae_y.item():.4f}', 
-                'MAE_Rz': f'{mae_rz.item():.4f}'
+                'MAE_X': f'{batch_mae_x:.4f}',
+                'MAE_Y': f'{batch_mae_y:.4f}',
+                'MAE_Rz': f'{batch_mae_rz:.4f}'
             })
 
             # 可视化结果
@@ -201,10 +211,10 @@ def main(args):
                 )
     
     # 计算并打印平均MAE
-    all_maes = np.array(all_maes)
-    avg_maes = all_maes.mean(axis=0)
-    std_maes = all_maes.std(axis=0)
-    three_sigmas = 3 * std_maes + avg_maes
+    all_maes = np.stack([all_maes_x, all_maes_y, all_maes_rz], axis=1)  # [num_samples, 3]
+    avg_maes = np.mean(all_maes, axis=0)
+    std_maes = np.std(all_maes, axis=0)
+    three_sigmas = avg_maes + 3 * std_maes
     print(f'Average MAE:')
     print(f'X: {avg_maes[0]:.4f} mm')
     print(f'Y: {avg_maes[1]:.4f} mm')
