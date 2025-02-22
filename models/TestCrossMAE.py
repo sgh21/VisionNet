@@ -109,7 +109,6 @@ class CrossMAE(nn.Module):
 
         pred = self.regressor(feat_fusion)  # [B, 3]
         
-        
         return pred
 
 def create_crossmae_model(

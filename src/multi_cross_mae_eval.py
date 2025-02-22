@@ -8,7 +8,7 @@ import yaml
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
-from models.TestMultiCrossMAE import multicrossmae_vit_large
+import models.TestMultiCrossMAE as multicrossmae
 from pathlib import Path
 from utils.multi_datasets import MultiCrossMAEDataset
 
@@ -41,6 +41,7 @@ def get_args_parser():
                         help='checkpoint path')
     
     # 模型参数
+    parser.add_argument('--model', default='multicrossmae_vit_base', type=str)
     parser.add_argument('--input_size', default=224, type=int)
     parser.add_argument('--embed_dim', default=1024, type=int)
     parser.add_argument('--depth', default=24, type=int)
@@ -49,6 +50,7 @@ def get_args_parser():
     parser.add_argument('--mlp_ratio', default=4., type=float)
     parser.add_argument('--feature_dim', default=3, type=int)
     parser.add_argument('--qkv_bias', action='store_true')
+    parser.add_argument('--mask_ratio', default=1, type=float)
     
     # 评估参数
     parser.add_argument('--data_path', default='./data', type=str)
@@ -119,14 +121,10 @@ def main(args):
     checkpoint = torch.load(args.weights, map_location='cpu')
     
     # 创建模型
-    model = multicrossmae_vit_large(
-        img_size=args.input_size,
-        embed_dim=args.embed_dim,
-        depth=args.depth,
-        encoder_num_heads=args.encoder_num_heads,
+    model = multicrossmae.__dict__[args.model](
         cross_num_heads=args.cross_num_heads,
-        mlp_ratio=args.mlp_ratio,
         feature_dim=args.feature_dim,
+        pretrained_path=args.mae_pretrained,
         qkv_bias=args.qkv_bias,
     )
     
@@ -168,12 +166,8 @@ def main(args):
             label1, label2 = label1.to(args.device), label2.to(args.device)
             
             # 预测
-            pred = model(rgb_img1, rgb_img2, touch_img1, touch_img2, mask_ratio=0.0)
+            pred = model(rgb_img1, rgb_img2, touch_img1, touch_img2, mask_ratio=args.mask_ratio, only_rgb=True)
             delta_label = label2 - label1
-            
-            # 反归一化预测值和真实值
-            # pred_real = label_denormalize(label_normalize(pred, loss_norm), loss_norm)
-            # delta_label_real = label_denormalize(label_normalize(delta_label, loss_norm), loss_norm)
             
             # 计算MAE
             mae_x, mae_y, mae_rz = calculate_dim_mae(pred, delta_label)

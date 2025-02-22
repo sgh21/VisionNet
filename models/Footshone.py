@@ -113,7 +113,7 @@ class MAEEncoder(nn.Module):
         N, L, D = x.shape  # batch, length, dim
         len_keep = int(L * (1 - mask_ratio))
 
-        if keep_mask is None:
+        if keep_mask is None or mask_ratio == 0.0 :
             noise = torch.rand(N, L, device=x.device)  # noise in [0, 1]
             
             # sort noise for each sample

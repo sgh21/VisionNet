@@ -24,7 +24,6 @@ import models.TestMultiCrossMAE as MultiCrossMAE
 from utils.multi_datasets import MultiCrossMAEDataset
     
 
-
 def get_default_args():
     """获取默认参数"""
     parser = get_args_parser()
@@ -330,17 +329,7 @@ def main(args):
         pretrained_path=args.mae_pretrained,
         qkv_bias=args.qkv_bias,
         )
-    # model = multicrossmae_vit_large(
-    #     img_size=args.input_size,
-    #     embed_dim=args.embed_dim,
-    #     depth=args.depth,
-    #     encoder_num_heads=args.encoder_num_heads,
-    #     cross_num_heads=args.cross_num_heads,
-    #     mlp_ratio=args.mlp_ratio,
-    #     feature_dim=args.feature_dim,
-    #     pretrained_path=args.mae_pretrained,
-    #     qkv_bias=args.qkv_bias,
-    # )
+
 
     model.to(device)
 

@@ -8,7 +8,7 @@ import yaml
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
-from models.CrossMAE import create_crossmae_model
+import models.TestCrossMAE as crossmae
 from pathlib import Path
 class EvalDataset(Dataset):
     def __init__(self, args, transform=None):
@@ -89,6 +89,7 @@ def get_args_parser():
                         help='checkpoint path')
     
     # 模型参数
+    parser.add_argument('--model', default='crossmae_vit_base', type=str)
     parser.add_argument('--input_size', default=224, type=int)
     parser.add_argument('--embed_dim', default=1024, type=int)
     parser.add_argument('--depth', default=24, type=int)
@@ -97,6 +98,7 @@ def get_args_parser():
     parser.add_argument('--mlp_ratio', default=4., type=float)
     parser.add_argument('--feature_dim', default=3, type=int)
     parser.add_argument('--qkv_bias', action='store_true')
+    parser.add_argument('--mask_ratio', default=1, type=float)
     
     # 评估参数
     parser.add_argument('--data_path', default='./data', type=str)
@@ -128,9 +130,9 @@ def visualize_results(img1_path, img2_path, pred, gt, save_path):
     plt.close()
 
 def calculate_dim_mae(pred, target):
-    mae_x = torch.mean(torch.abs(pred[:,0] - target[:,0]))
-    mae_y = torch.mean(torch.abs(pred[:,1] - target[:,1]))
-    mae_rz = torch.mean(torch.abs(pred[:,2] - target[:,2]))
+    mae_x = torch.abs(pred[:,0] - target[:,0])
+    mae_y = torch.abs(pred[:,1] - target[:,1])
+    mae_rz = torch.abs(pred[:,2] - target[:,2])
     return mae_x, mae_y, mae_rz
 
 def main(args):
@@ -138,14 +140,10 @@ def main(args):
     checkpoint = torch.load(args.weights, map_location='cpu')
     
     # 创建模型
-    model = create_crossmae_model(
-        img_size=args.input_size,
-        embed_dim=args.embed_dim,
-        depth=args.depth,
-        encoder_num_heads=args.encoder_num_heads,
+    model = crossmae.__dict__[args.model](
         cross_num_heads=args.cross_num_heads,
-        mlp_ratio=args.mlp_ratio,
         feature_dim=args.feature_dim,
+        pretrained_path=args.mae_pretrained,
         qkv_bias=args.qkv_bias,
     )
     
@@ -186,7 +184,7 @@ def main(args):
             label1, label2 = label1.to(args.device), label2.to(args.device)
             
             # 预测
-            pred = model(img1, img2, mask_ratio=0.0)
+            pred = model(img1, img2, mask_ratio=args.mask_ratio)
             delta_label = label2 - label1
             
             # 反归一化预测值和真实值

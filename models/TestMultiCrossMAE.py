@@ -118,11 +118,46 @@ class MultiCrossMAE(nn.Module):
         fusion_latent = self.feat_norm(fusion_latent)
 
         return fusion_latent, keep_mask
+    def forward_contrast_modal(self, img1, img2, mask_ratio=0.75, keep_mask = None,is_rgb = True):
+        if keep_mask is None:
+            # RGB Encoder
+            latent1, _mask1, _ids_restore, _ids_keep = self.encoder(img1, mask_ratio, keep_mask=keep_mask)
+            keep_mask = {
+                'ids_keep': _ids_keep,
+                'ids_restore': _ids_restore,
+            }
+        else :
+            latent1, _mask1, _ids_restore, _ids_keep = self.encoder(img1, mask_ratio, keep_mask=keep_mask)
+
+        # Touch Encoder
+        latent2, _, _, _ = self.encoder(img2, mask_ratio, keep_mask=keep_mask)
+        
+        # # Cross-Modal Cross-Attention
+        # context = self.context_norm(torch.cat((rgb_latent, touch_latent), dim=1))
+        # !:query 都没有进行归一化
+        if is_rgb:
+            query1 = self.crossmodal_cross_attention(self.rgb_norm(latent1), self.rgb_norm(latent2))
+            query2 = self.crossmodal_cross_attention(self.rgb_norm(latent2), self.rgb_norm(latent1))
+        else:
+            query1 = self.crossmodal_cross_attention(self.touch_norm(latent1), self.touch_norm(latent2))
+            query2 = self.crossmodal_cross_attention(self.touch_norm(latent2), self.touch_norm(latent1))
+
+        # Fusion
+        fusion_latent = torch.cat((query1, query2), dim=1)
+        fusion_latent = self.feat_norm(fusion_latent)
+
+        return fusion_latent, keep_mask
     
-    def forward(self, rgb_img1, rgb_img2, touch_img1, touch_img2, mask_ratio=0.75):
+    def forward(self, rgb_img1, rgb_img2, touch_img1, touch_img2, mask_ratio=0.75,only_rgb = False):
         # 融合跨模态特征
-        fusion_feat1, keep_mask = self.forward_fusion_modal(rgb_img1, touch_img1, mask_ratio, keep_mask=None)
-        fusion_feat2, _  = self.forward_fusion_modal(rgb_img2, touch_img2, mask_ratio, keep_mask=keep_mask)
+        # fusion_feat1, keep_mask = self.forward_fusion_modal(rgb_img1, touch_img1, mask_ratio, keep_mask=None)
+        # fusion_feat2, _  = self.forward_fusion_modal(rgb_img2, touch_img2, mask_ratio, keep_mask=keep_mask)
+        fusion_feat1, keep_mask = self.forward_contrast_modal(rgb_img1, rgb_img2, mask_ratio, keep_mask=None,is_rgb = True)
+        
+        if only_rgb:
+            mask_ratio = 0.0
+
+        fusion_feat2, _  = self.forward_contrast_modal(touch_img1, touch_img2, mask_ratio, keep_mask=keep_mask,is_rgb = False)
 
         # 对比组间特征
         feat1_cross = self.unimodal_cross_attention(fusion_feat1, fusion_feat2)

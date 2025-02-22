@@ -1,15 +1,17 @@
 # 模型参数
 input_size: 224
-embed_dim: 1024
-depth: 24
-encoder_num_heads: 16
-cross_num_heads: 16
+embed_dim: 768
+depth: 12
+model: crossmae_vit_base
+encoder_num_heads: 12
+cross_num_heads: 12
 mlp_ratio: 4.0
 feature_dim: 3
 qkv_bias: true
+mask_ratio: 0.75
 
 # 评估参数
-weights: "./weights/crossmae_vit_large_bs16.pth"
+weights: "./weights/crossmae_vit_large_bs16.pth" # change to your model path
 data_path: "./dataset/train_data_0208/val"
 batch_size: 8
 num_workers: 4

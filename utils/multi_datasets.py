@@ -53,6 +53,12 @@ class MultiCrossMAEDataset(Dataset):
                 num_samples = int(len(class_pairs) * self.sample_ratio)
                 if num_samples > 0:
                     class_pairs = random.sample(class_pairs, num_samples)
+            else:
+                # 验证集固定比例采样
+                num_samples =  int(len(class_pairs)*0.1)
+                if num_samples > 0:
+                    class_pairs = random.sample(class_pairs, num_samples)
+
             rgb_pairs.extend(class_pairs)
         
         touch_pairs = [('gel_' + img1, 'gel_' + img2) for img1, img2 in rgb_pairs]
