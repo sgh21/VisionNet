@@ -89,6 +89,8 @@ def get_args_parser():
     parser.add_argument('--qkv_bias', action='store_true')
     parser.add_argument('--mask_ratio', default=0.75, type=float,
                         help='Masking ratio (percentage of removed patches).')
+    parser.add_argument('--cross_attention', action='store_true', 
+                        help='Use cross attention in the model')
     
     # Optimizer parameters
     parser.add_argument('--weight_decay', type=float, default=0.05,
@@ -378,6 +380,7 @@ def main(args):
         feature_dim=args.feature_dim,
         pretrained_path=args.mae_pretrained,
         qkv_bias=args.qkv_bias,
+        cross_attention=args.cross_attention
         )
 
     model.to(args.device)

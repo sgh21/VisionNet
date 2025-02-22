@@ -17,6 +17,7 @@ mlp_ratio: 4
 mask_ratio: 0.0 # 在下游任务时，默认不使用mask
 feature_dim: 3
 qkv_bias: true # 带bias会些许提高模型性能
+cross_attention: false
 
 # 优化器参数
 weight_decay: 0.05

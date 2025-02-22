@@ -166,7 +166,7 @@ def main(args):
             label1, label2 = label1.to(args.device), label2.to(args.device)
             
             # 预测
-            pred = model(rgb_img1, rgb_img2, touch_img1, touch_img2, mask_ratio=args.mask_ratio, only_rgb=True)
+            pred = model(rgb_img1, rgb_img2, touch_img1, touch_img2, mask_ratio=args.mask_ratio, mask_rgb=True)
             delta_label = label2 - label1
             
             # 计算MAE

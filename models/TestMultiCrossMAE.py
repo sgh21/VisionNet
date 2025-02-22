@@ -20,6 +20,7 @@ class MultiCrossMAE(nn.Module):
         drop_rate=0.1,
         qkv_bias=False,
         pretrained_path = None,
+        cross_attention = True,
     ):
         super().__init__()
 
@@ -37,13 +38,16 @@ class MultiCrossMAE(nn.Module):
             remove_class_token=remove_class_token
         )
 
-        # TODO: 刚实现编码器模块及其初始化，需要继续搭建交叉注意力模块和回归头
+        # TODO: 实现参数不更新时部分模块的报错，以及实现验证时将图片mask的功能
         # 交叉注意力模块
-        self.crossmodal_cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
+        self.cross_attention = cross_attention
+        if self.cross_attention:
+            # 是否使用跨模态交叉注意力
+            self.crossmodal_cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
+        
         self.unimodal_cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
         
         # 层归一化
-        self.context_norm = norm_layer(embed_dim)
         self.fc_norm = norm_layer(2*embed_dim)
         self.feat_norm = norm_layer(embed_dim)
         self.rgb_norm = norm_layer(embed_dim)
@@ -63,8 +67,6 @@ class MultiCrossMAE(nn.Module):
     def initialize_weights(self):
         """初始化新增网络层的参数"""
         # 初始化LayerNorm
-        torch.nn.init.constant_(self.context_norm.bias, 0)
-        torch.nn.init.constant_(self.context_norm.weight, 1.0)
         torch.nn.init.constant_(self.fc_norm.bias, 0)
         torch.nn.init.constant_(self.fc_norm.weight, 1.0)
         torch.nn.init.constant_(self.feat_norm.bias, 0)
@@ -81,7 +83,7 @@ class MultiCrossMAE(nn.Module):
                 if m.bias is not None:
                     torch.nn.init.constant_(m.bias, 0)
 
-    def forward_fusion_modal(self, rgb_img, touch_img, mask_ratio=0.75, keep_mask = None, only_cat = False):
+    def forward_fusion_modal(self, rgb_img, touch_img, mask_ratio=0.75, keep_mask = None, mask_rgb = False):
         """
         融合同一组数据的两个模态的特征
 
@@ -105,12 +107,15 @@ class MultiCrossMAE(nn.Module):
             rgb_latent, rgb_mask, rgb_ids_restore, rgb_ids_keep = self.encoder(rgb_img, mask_ratio, keep_mask=keep_mask)
 
         # Touch Encoder
+        if mask_rgb:
+            mask_ratio = 0.0
+            
         touch_latent, touch_mask, touch_ids_restore, touch_ids_keep = self.encoder(touch_img, mask_ratio, keep_mask=keep_mask)
         
         # # Cross-Modal Cross-Attention
         # context = self.context_norm(torch.cat((rgb_latent, touch_latent), dim=1))
-        # !:query 都没有进行归一化
-        if only_cat:
+        # !:不使用跨模态交叉注意力
+        if not self.cross_attention:
             rgb_query = self.rgb_norm(rgb_latent)
             touch_query = self.touch_norm(touch_latent)
         else:
@@ -124,10 +129,10 @@ class MultiCrossMAE(nn.Module):
         return fusion_latent, keep_mask
 
     
-    def forward(self, rgb_img1, rgb_img2, touch_img1, touch_img2, mask_ratio=0.75,only_rgb = False):
+    def forward(self, rgb_img1, rgb_img2, touch_img1, touch_img2, mask_ratio=0.75,mask_rgb = False):
         # 融合跨模态特征
-        fusion_feat1, keep_mask = self.forward_fusion_modal(rgb_img1, touch_img1, mask_ratio, keep_mask=None)
-        fusion_feat2, _  = self.forward_fusion_modal(rgb_img2, touch_img2, mask_ratio, keep_mask=keep_mask)
+        fusion_feat1, keep_mask = self.forward_fusion_modal(rgb_img1, touch_img1, mask_ratio, keep_mask=None, mask_rgb = mask_rgb)
+        fusion_feat2, _  = self.forward_fusion_modal(rgb_img2, touch_img2, mask_ratio, keep_mask=keep_mask, mask_rgb = mask_rgb)
        
 
         # 对比组间特征
@@ -162,6 +167,7 @@ def create_multicrossmae_model(
         drop_rate=0.1,
         qkv_bias=False,
         pretrained_path= None,
+        cross_attention = True,
         **kwargs
 ):
         # 捕获所有参数的值并打印
@@ -180,6 +186,7 @@ def create_multicrossmae_model(
     print(f"drop_rate: {drop_rate}")
     print(f"qkv_bias: {qkv_bias}")
     print(f"pretrained_path: {pretrained_path}")
+    print(f"cross_attention: {cross_attention}")
     
     model = MultiCrossMAE(
         img_size=img_size,
@@ -196,6 +203,7 @@ def create_multicrossmae_model(
         drop_rate=drop_rate,
         qkv_bias=qkv_bias,
         pretrained_path=pretrained_path,
+        cross_attention=cross_attention,
         **kwargs
     )
     return model
