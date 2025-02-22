@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import models.TestCrossMAE as crossmae
 from pathlib import Path
+from utils.VisionUtils import add_radial_noise
 class EvalDataset(Dataset):
     def __init__(self, args, transform=None):
         root = args.data_path
@@ -107,27 +108,60 @@ def get_args_parser():
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--output_dir', default='./eval_results')
     parser.add_argument('--sample_ratio', default=1.0, type=float)
+    parser.add_argument('--noise_level', default=0.1, type=float)
     
     return parser
 
+def tensor_to_img(tensor):
+    """将归一化的tensor转换为PIL图像"""
+    denorm = transforms.Normalize(
+        mean=[-0.485/0.229, -0.456/0.224, -0.406/0.225],
+        std=[1/0.229, 1/0.224, 1/0.225]
+    )
+    return transforms.ToPILImage()(denorm(tensor))
 
-
-def visualize_results(img1_path, img2_path, pred, gt, save_path):
+def visualize_results(img1_tensor, img2_tensor, pred, gt, save_path):
+    """可视化加噪声后的图像对和预测结果
+    Args:
+        img1_tensor: 加噪声后的图像1 tensor [C,H,W]
+        img2_tensor: 加噪声后的图像2 tensor [C,H,W]
+        pred: 预测值 [dx, dy, drz]
+        gt: 真实值 [dx, dy, drz]
+        save_path: 保存路径
+    """
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
     
-    # 显示图片对
-    img1 = Image.open(img1_path)
-    img2 = Image.open(img2_path)
+    # 显示加噪声后的图像对
+    img1 = tensor_to_img(img1_tensor)
+    img2 = tensor_to_img(img2_tensor)
     ax1.imshow(img1)
     ax2.imshow(img2)
+    ax1.set_title('Noised Image 1')
+    ax2.set_title('Noised Image 2')
     
     # 添加预测值和真实值标题
     fig.suptitle(f'Pred: dx={pred[0]:.2f}, dy={pred[1]:.2f}, drz={pred[2]:.2f}\n' + 
                  f'GT: dx={gt[0]:.2f}, dy={gt[1]:.2f}, drz={gt[2]:.2f}')
     
-    # 保存图像
     plt.savefig(save_path)
     plt.close()
+
+# def visualize_results(img1_path, img2_path, pred, gt, save_path):
+#     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+    
+#     # 显示图片对
+#     img1 = Image.open(img1_path)
+#     img2 = Image.open(img2_path)
+#     ax1.imshow(img1)
+#     ax2.imshow(img2)
+    
+#     # 添加预测值和真实值标题
+#     fig.suptitle(f'Pred: dx={pred[0]:.2f}, dy={pred[1]:.2f}, drz={pred[2]:.2f}\n' + 
+#                  f'GT: dx={gt[0]:.2f}, dy={gt[1]:.2f}, drz={gt[2]:.2f}')
+    
+#     # 保存图像
+#     plt.savefig(save_path)
+#     plt.close()
 
 def calculate_dim_mae(pred, target):
     mae_x = torch.abs(pred[:,0] - target[:,0])
@@ -143,7 +177,6 @@ def main(args):
     model = crossmae.__dict__[args.model](
         cross_num_heads=args.cross_num_heads,
         feature_dim=args.feature_dim,
-        pretrained_path=args.mae_pretrained,
         qkv_bias=args.qkv_bias,
     )
     
@@ -185,6 +218,8 @@ def main(args):
             img1, img2 = img1.to(args.device), img2.to(args.device)
             label1, label2 = label1.to(args.device), label2.to(args.device)
             
+            img1 = add_radial_noise(img1, args.noise_level)
+            img2 = add_radial_noise(img2, args.noise_level)
             # 预测
             pred = model(img1, img2, mask_ratio=args.mask_ratio)
             delta_label = label2 - label1
@@ -220,8 +255,8 @@ def main(args):
                 save_path = os.path.join(args.output_dir, f'pair_{batch_idx}_{i}.png')
                 
                 visualize_results(
-                    img1_path, 
-                    img2_path,
+                    img1[i].cpu(), 
+                    img2[i].cpu(),
                     pred[i].cpu().numpy(),
                     delta_label[i].cpu().numpy(),
                     save_path

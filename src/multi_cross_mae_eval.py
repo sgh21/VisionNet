@@ -11,6 +11,7 @@ import numpy as np
 import models.TestMultiCrossMAE as multicrossmae
 from pathlib import Path
 from utils.multi_datasets import MultiCrossMAEDataset
+from utils.VisionUtils import add_radial_noise
 
 def get_default_args():
     """获取默认参数"""
@@ -59,7 +60,9 @@ def get_args_parser():
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--output_dir', default='./eval_results')
     parser.add_argument('--pair_downsample', default=1.0, type=float)
-    
+    parser.add_argument('--noise_level', default=0.1, type=float,
+                    help='Maximum noise level for RGB images')
+
     return parser
 
 
@@ -124,7 +127,6 @@ def main(args):
     model = multicrossmae.__dict__[args.model](
         cross_num_heads=args.cross_num_heads,
         feature_dim=args.feature_dim,
-        pretrained_path=args.mae_pretrained,
         qkv_bias=args.qkv_bias,
     )
     
@@ -167,6 +169,8 @@ def main(args):
             touch_img1, touch_img2 = touch_img1.to(args.device), touch_img2.to(args.device)
             label1, label2 = label1.to(args.device), label2.to(args.device)
             
+            rgb_img1 = add_radial_noise(rgb_img1, args.noise_level)
+            rgb_img2 = add_radial_noise(rgb_img2, args.noise_level)
             # 预测
             pred = model(rgb_img1, rgb_img2, touch_img1, touch_img2, mask_ratio=args.mask_ratio, mask_rgb=True)
             delta_label = label2 - label1

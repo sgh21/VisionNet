@@ -4,6 +4,7 @@ from PIL import Image
 from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
+import torch
 
 def rotate_images(root_path:str):
     """
@@ -107,6 +108,25 @@ def show_image(root_path:str, normalize:bool=True, mean:list[float]=None, std:li
             
         except Exception as e:
             print(f"Error processing {file_path}: {str(e)}")
+
+def add_radial_noise(image, max_noise=0.1):
+    """添加径向噪声，边缘噪声大,中心噪声小
+    Args:
+        image: [3, H, W] tensor
+        max_noise: 最大噪声强度
+    """
+    H, W = image.shape[-2:]
+    x = torch.linspace(-1, 1, W)
+    y = torch.linspace(-1, 1, H)
+    xx, yy = torch.meshgrid(x, y)
+    # 计算到中心的距离
+    distance = torch.sqrt(xx*xx + yy*yy)
+    # 将距离归一化到[0,1]
+    distance = distance / distance.max()
+    # 生成噪声
+    noise = torch.randn(3, H, W) * distance[None, :, :] * max_noise
+    noise = noise.to(image.device)
+    return torch.clamp(image + noise, 0, 1)
 
 if __name__ == "__main__":
     root_path = "/home/sgh/data/WorkSpace/MultiMAE/dataset/train_data_0208/rgb/"
