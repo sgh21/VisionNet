@@ -24,7 +24,7 @@ import utils.misc as misc
 import utils.lr_sched as lr_sched
 from utils.misc import NativeScalerWithGradNormCount as NativeScaler
 from models.CrossMAE import create_crossmae_model
-from utils.cross_datasets import CrossMAEDataset
+from utils.custome_datasets import CrossMAEDataset
 
 def get_default_args():
     """获取默认参数"""

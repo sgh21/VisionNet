@@ -21,7 +21,7 @@ import utils.misc as misc
 import utils.lr_sched as lr_sched
 from utils.misc import NativeScalerWithGradNormCount as NativeScaler
 import models.TestCrossMAE as crossmae
-from utils.cross_datasets import CrossMAEDataset
+from utils.custome_datasets import CrossMAEDataset
 
 
 def get_default_args():

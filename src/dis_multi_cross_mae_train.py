@@ -22,7 +22,7 @@ import utils.misc as misc
 import utils.lr_sched as lr_sched
 from utils.misc import NativeScalerWithGradNormCount as NativeScaler
 import models.TestMultiCrossMAE as MultiCrossMAE
-from utils.multi_datasets import MultiCrossMAEDataset
+from utils.custome_datasets import MultiCrossMAEDataset
 
 # Ensure the following lines are added to enable distributed training
 import torch.distributed as dist

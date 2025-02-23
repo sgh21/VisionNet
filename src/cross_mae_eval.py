@@ -11,56 +11,8 @@ import numpy as np
 import models.TestCrossMAE as crossmae
 from pathlib import Path
 from utils.VisionUtils import add_radial_noise, visualize_results_rgb
-class EvalDataset(Dataset):
-    def __init__(self, args, transform=None):
-        root = args.data_path
-        self.img_dir = os.path.join(root, 'images')
-        self.label_dir = os.path.join(root, 'labels')
-        self.transform = transform
-        
-        # 按类别组织图片
-        self.class_to_imgs = {}
-        for img_file in os.listdir(self.img_dir):
-            class_name = img_file.split('_')[1]
-            if class_name not in self.class_to_imgs:
-                self.class_to_imgs[class_name] = []
-            self.class_to_imgs[class_name].append(img_file)
-            
-        self.pairs = self._generate_pairs()
-        import random
-        num_samples = int(len(self.pairs) * args.sample_ratio)
-        self.pairs = random.sample(self.pairs, num_samples)
-    def _generate_pairs(self):
-        pairs = []
-        for class_name, imgs in self.class_to_imgs.items():
-            class_pairs = [(imgs[i], imgs[j]) 
-                          for i in range(len(imgs))
-                          for j in range(i+1, len(imgs))]
-            pairs.extend(class_pairs)
-        return pairs
+from utils.custome_datasets import CrossMAEDataset as EvalDataset
 
-    def __len__(self):
-        return len(self.pairs)
-    
-    def __getitem__(self, idx):
-        img1_name, img2_name = self.pairs[idx]
-        
-        img1 = Image.open(os.path.join(self.img_dir, img1_name)).convert('RGB')
-        img2 = Image.open(os.path.join(self.img_dir, img2_name)).convert('RGB')
-        
-        if self.transform:
-            img1 = self.transform(img1)
-            img2 = self.transform(img2)
-        
-        label1 = self._load_label(os.path.join(self.label_dir, img1_name.replace('.png', '.txt')))
-        label2 = self._load_label(os.path.join(self.label_dir, img2_name.replace('.png', '.txt')))
-        
-        return img1, img2, label1, label2, img1_name, img2_name
-
-    def _load_label(self, label_path):
-        with open(label_path, 'r') as f:
-            x, y, rz = map(float, f.read().strip().split(','))
-        return torch.tensor([x, y, rz], dtype=torch.float32)
 def get_default_args():
     """获取默认参数"""
     parser = get_args_parser()

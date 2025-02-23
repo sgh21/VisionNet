@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import models.TestMultiCrossMAE as multicrossmae
 from pathlib import Path
-from utils.multi_datasets import MultiCrossMAEDataset
+from utils.custome_datasets import MultiCrossMAEDataset
 from utils.VisionUtils import add_radial_noise, visualize_results_rgb_touch
 
 def get_default_args():
