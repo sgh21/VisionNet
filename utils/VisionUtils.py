@@ -5,6 +5,8 @@ from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
+import torchvision.transforms as transforms
+from PIL import ImageDraw , ImageFont
 
 def rotate_images(root_path:str):
     """
@@ -109,6 +111,93 @@ def show_image(root_path:str, normalize:bool=True, mean:list[float]=None, std:li
         except Exception as e:
             print(f"Error processing {file_path}: {str(e)}")
 
+def tensor_to_img(tensor):
+    """将归一化的tensor转换为PIL图像"""
+    denorm = transforms.Normalize(
+        mean=[-0.485/0.229, -0.456/0.224, -0.406/0.225],
+        std=[1/0.229, 1/0.224, 1/0.225]
+    )
+    return transforms.ToPILImage()(torch.clamp(denorm(tensor), 0, 1))
+
+def visualize_results_rgb(img1_tensor, img2_tensor, pred, gt, save_path):
+    """使用PIL库保存结果
+    Args:
+        img1_tensor: 加噪声后的图像1 tensor [C,H,W]
+        img2_tensor: 加噪声后的图像2 tensor [C,H,W]
+        pred: 预测值 [dx, dy, drz]
+        gt: 真实值 [dx, dy, drz]
+        save_path: 保存路径
+    """
+    # 转换为PIL图像
+    img1 = tensor_to_img(img1_tensor)
+    img2 = tensor_to_img(img2_tensor)
+    
+    # 创建新图像
+    width = img1.width * 2 + 10  # 间隔10像素
+    height = img1.height + 50    # 底部留50像素显示文本
+    result = Image.new('RGB', (width, height), 'white')
+    
+    # 粘贴图像
+    result.paste(img1, (0, 0))
+    result.paste(img2, (img1.width + 10, 0))
+    
+    # 添加文本
+    draw = ImageDraw.Draw(result)
+    text = f'Pred: dx={pred[0]:.2f}, dy={pred[1]:.2f}, drz={pred[2]:.2f}\n' + \
+           f'GT: dx={gt[0]:.2f}, dy={gt[1]:.2f}, drz={gt[2]:.2f}'
+    
+    # 计算文本位置使其居中
+    text_width = draw.textlength(text.split('\n')[0])  # 估算文本宽度
+    x = (width - text_width) // 2
+    draw.text((x, img1.height + 10), text, fill='black')
+    
+    # 保存结果
+    result.save(save_path)
+
+def visualize_results_rgb_touch(rgb_img1_tensor, rgb_img2_tensor, 
+                              touch_img1_tensor, touch_img2_tensor, 
+                              pred, gt, save_path):
+    """使用PIL库保存RGB和触觉图像结果
+    Args:
+        rgb_img1_tensor: RGB图像1 tensor [C,H,W]
+        rgb_img2_tensor: RGB图像2 tensor [C,H,W]
+        touch_img1_tensor: 触觉图像1 tensor [C,H,W]
+        touch_img2_tensor: 触觉图像2 tensor [C,H,W]
+        pred: 预测值 [dx, dy, drz]
+        gt: 真实值 [dx, dy, drz]
+        save_path: 保存路径
+    """
+    # 转换为PIL图像
+    rgb_img1 = tensor_to_img(rgb_img1_tensor)
+    rgb_img2 = tensor_to_img(rgb_img2_tensor)
+    touch_img1 = tensor_to_img(touch_img1_tensor)
+    touch_img2 = tensor_to_img(touch_img2_tensor)
+    
+    # 创建新图像
+    width = rgb_img1.width * 2 + 10   # 间隔10像素
+    height = rgb_img1.height * 2 + 60  # 底部留60像素显示文本
+    result = Image.new('RGB', (width, height), 'white')
+    
+    # 粘贴图像
+    result.paste(rgb_img1, (0, 0))  # 左上
+    result.paste(rgb_img2, (rgb_img1.width + 10, 0))  # 右上
+    result.paste(touch_img1, (0, rgb_img1.height + 10))  # 左下
+    result.paste(touch_img2, (touch_img1.width + 10, rgb_img1.height + 10))  # 右下
+    
+    # 添加文本
+    draw = ImageDraw.Draw(result)
+    text = f'Pred: dx={pred[0]:.2f}, dy={pred[1]:.2f}, drz={pred[2]:.2f}\n' + \
+           f'GT: dx={gt[0]:.2f}, dy={gt[1]:.2f}, drz={gt[2]:.2f}'
+    
+    # 计算文本位置使其居中
+    text_width = draw.textlength(text.split('\n')[0])
+    x = (width - text_width) // 2
+    y = height - 50  # 底部文本位置
+    draw.text((x, y), text, fill='black')
+    
+    # 保存结果
+    result.save(save_path)
+    
 def add_radial_noise(image, max_noise=0.1):
     """添加径向噪声，边缘噪声大,中心噪声小
     Args:
@@ -126,7 +215,7 @@ def add_radial_noise(image, max_noise=0.1):
     # 生成噪声
     noise = torch.randn(3, H, W) * distance[None, :, :] * max_noise
     noise = noise.to(image.device)
-    return torch.clamp(image + noise, 0, 1)
+    return image + noise
 
 if __name__ == "__main__":
     root_path = "/home/sgh/data/WorkSpace/MultiMAE/dataset/train_data_0208/rgb/"

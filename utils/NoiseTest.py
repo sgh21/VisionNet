@@ -19,6 +19,8 @@ class NoiseTestApp:
         self.image_path = None
         self.original_image = None
         self.noised_image = None
+        self.mean =torch.tensor([0.485, 0.456, 0.406])
+        self.std = torch.tensor([0.229, 0.224, 0.225])
         
     def create_widgets(self):
         # 图片显示框
@@ -64,11 +66,17 @@ class NoiseTestApp:
         distance = torch.sqrt(xx*xx + yy*yy)
         distance = distance / distance.max()
         noise = torch.randn(3, H, W) * distance[None, :, :] * max_noise
-        return torch.clamp(image_tensor + noise, 0, 1)
+        return image_tensor + noise
     
     def tensor_to_pil(self, tensor):
         """将tensor转换为PIL图像"""
-        return transforms.ToPILImage()(tensor)
+        # 反归一化
+        denorm = transforms.Normalize(
+            mean=[-0.485/0.229, -0.456/0.224, -0.406/0.225],
+            std=[1/0.229, 1/0.224, 1/0.225],
+        )
+        
+        return transforms.ToPILImage()(torch.clamp(denorm(tensor), 0, 1))
     
     def load_image(self):
         self.image_path = filedialog.askopenfilename(
@@ -79,6 +87,7 @@ class NoiseTestApp:
             transform = transforms.Compose([
                 transforms.Resize((448, 448)),
                 transforms.ToTensor(),
+                transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
             ])
             self.original_tensor = transform(image)
             

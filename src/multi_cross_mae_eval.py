@@ -11,7 +11,7 @@ import numpy as np
 import models.TestMultiCrossMAE as multicrossmae
 from pathlib import Path
 from utils.multi_datasets import MultiCrossMAEDataset
-from utils.VisionUtils import add_radial_noise
+from utils.VisionUtils import add_radial_noise, visualize_results_rgb_touch
 
 def get_default_args():
     """获取默认参数"""
@@ -65,52 +65,6 @@ def get_args_parser():
 
     return parser
 
-
-
-def visualize_results(rgb_img1_path, rgb_img2_path, touch_img1_path, touch_img2_path, pred, gt, save_path):
-    """可视化RGB和触觉图像对以及预测结果
-    Args:
-        rgb_img1_path: RGB图像1路径
-        rgb_img2_path: RGB图像2路径
-        touch_img1_path: 触觉图像1路径
-        touch_img2_path: 触觉图像2路径
-        pred: 预测值 [dx, dy, drz]
-        gt: 真实值 [dx, dy, drz]
-        save_path: 保存路径
-    """
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 10))
-    
-    # 显示RGB图像对
-    rgb_img1 = Image.open(rgb_img1_path)
-    rgb_img2 = Image.open(rgb_img2_path)
-    ax1.imshow(rgb_img1)
-    ax2.imshow(rgb_img2)
-    ax1.set_title('RGB Image 1')
-    ax2.set_title('RGB Image 2')
-    
-    # 显示触觉图像对
-    touch_img1 = Image.open(touch_img1_path)
-    touch_img2 = Image.open(touch_img2_path)
-    ax3.imshow(touch_img1)
-    ax4.imshow(touch_img2)
-    ax3.set_title('Touch Image 1')
-    ax4.set_title('Touch Image 2')
-    
-    # 关闭坐标轴
-    for ax in [ax1, ax2, ax3, ax4]:
-        ax.axis('off')
-    
-    # 添加预测值和真实值标题
-    fig.suptitle(f'Prediction: dx={pred[0]:.2f}mm, dy={pred[1]:.2f}mm, drz={pred[2]:.2f}°\n' + 
-                 f'Ground Truth: dx={gt[0]:.2f}mm, dy={gt[1]:.2f}mm, drz={gt[2]:.2f}°',
-                 fontsize=12, y=0.95)
-    
-    # 调整子图间距
-    plt.tight_layout()
-    
-    # 保存图像
-    plt.savefig(save_path, bbox_inches='tight', dpi=300)
-    plt.close()
 
 def calculate_dim_mae(pred, target):
     mae_x = torch.abs(pred[:,0] - target[:,0])
@@ -197,18 +151,13 @@ def main(args):
 
             # 可视化结果
             for i in range(rgb_img1.size(0)):
-                root_path = os.path.join(args.data_path, 'val/')
-                rgb_img1_path = os.path.join(root_path, 'rgb_images', img1_name[i])
-                rgb_img2_path = os.path.join(root_path, 'rgb_images', img2_name[i])
-                touch_img1_path = os.path.join(root_path, 'touch_images', 'gel_' + img1_name[i])
-                touch_img2_path = os.path.join(root_path, 'touch_images', 'gel_' + img2_name[i])
                 save_path = os.path.join(args.output_dir, f'pair_{batch_idx}_{i}.png')
                 
-                visualize_results(
-                    rgb_img1_path, 
-                    rgb_img2_path,
-                    touch_img1_path,
-                    touch_img2_path,
+                visualize_results_rgb_touch(
+                    rgb_img1[i].cpu(), 
+                    rgb_img2[i].cpu(),
+                    touch_img1[i].cpu(),
+                    touch_img2[i].cpu(),
                     pred[i].cpu().numpy(),
                     delta_label[i].cpu().numpy(),
                     save_path
