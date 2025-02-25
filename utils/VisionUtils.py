@@ -217,10 +217,28 @@ def add_radial_noise(image, max_noise=0.1):
     noise = noise.to(image.device)
     return image + noise
 
-def plot_error_distribution(errors_x, errors_y, errors_rz, save_path):
+def plot_error_distribution(errors_x, errors_y, errors_rz, save_path,dtype='gaussian'):
     """绘制误差分布直方图和正态分布拟合曲线"""
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
-    
+
+    def plot_with_laplace(ax, data, title, xlabel):
+        # 计算拉普拉斯分布参数
+        loc = np.median(data)  # 位置参数
+        scale = np.mean(np.abs(data - loc))  # 尺度参数
+        
+        # 绘制直方图
+        ax.hist(data, bins=30, density=True, alpha=0.7, label='Histogram')
+        
+        # 生成拉普拉斯分布曲线
+        x = np.linspace(min(data), max(data), 100)
+        laplace = 1/(2*scale) * np.exp(-np.abs(x - loc)/scale)
+        ax.plot(x, laplace, 'r-', label=f'loc={loc:.2f}\nscale={scale:.2f}')
+        
+        ax.set_title(title)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel('Density')
+        ax.legend()
+
     # 计算统计量并绘制
     def plot_with_gaussian(ax, data, title, xlabel):
         mean = np.mean(data)
@@ -238,16 +256,21 @@ def plot_error_distribution(errors_x, errors_y, errors_rz, save_path):
         ax.set_xlabel(xlabel)
         ax.set_ylabel('Density')
         ax.legend()
-    
-    # 绘制三个维度的分布
-    plot_with_gaussian(ax1, errors_x, 'X Error Distribution', 'Error (mm)')
-    plot_with_gaussian(ax2, errors_y, 'Y Error Distribution', 'Error (mm)')
-    plot_with_gaussian(ax3, errors_rz, 'Rz Error Distribution', 'Error (deg)')
+        
+    if dtype == 'laplace':
+        plot_with_laplace(ax1, errors_x, 'X Error Distribution', 'Error (mm)')
+        plot_with_laplace(ax2, errors_y, 'Y Error Distribution', 'Error (mm)')
+        plot_with_laplace(ax3, errors_rz, 'Rz Error Distribution', 'Error (deg)')
+    elif dtype == 'guassian':
+        # 绘制三个维度的分布
+        plot_with_gaussian(ax1, errors_x, 'X Error Distribution', 'Error (mm)')
+        plot_with_gaussian(ax2, errors_y, 'Y Error Distribution', 'Error (mm)')
+        plot_with_gaussian(ax3, errors_rz, 'Rz Error Distribution', 'Error (deg)')
     
     plt.tight_layout()
     plt.savefig(save_path)
     plt.close()
-    
+
 if __name__ == "__main__":
     root_path = "/home/sgh/data/WorkSpace/MultiMAE/dataset/train_data_0208/rgb/"
     # rotate_images(root_path)
