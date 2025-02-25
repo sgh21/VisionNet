@@ -16,3 +16,5 @@ num_workers: 4
 pair_downsample: 0.02
 device: "cuda"
 output_dir: "./experiment/multicrossmae/outputs/exp_mr0.0_bias_rgb+touch_sameed/eval_sr0.02"
+curve_type: gaussian
+optimizer_type: mse

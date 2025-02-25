@@ -10,7 +10,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import models.TestCrossMAE as crossmae
 from pathlib import Path
-from utils.VisionUtils import add_radial_noise, visualize_results_rgb, plot_error_distribution, data_statistics
+from utils.VisionUtils import add_radial_noise, visualize_results_rgb
+from utils.DataAnalysis import plot_error_distribution, data_statistics
 from utils.custome_datasets import CrossMAEDataset as EvalDataset
 
 def get_default_args():

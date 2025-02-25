@@ -11,7 +11,8 @@ import numpy as np
 import models.TestMultiCrossMAE as multicrossmae
 from pathlib import Path
 from utils.custome_datasets import MultiCrossMAEDataset
-from utils.VisionUtils import add_radial_noise, visualize_results_rgb_touch, plot_error_distribution,data_statistics
+from utils.VisionUtils import add_radial_noise, visualize_results_rgb_touch
+from utils.DataAnalysis import plot_error_distribution,data_statistics
 
 def get_default_args():
     """获取默认参数"""
@@ -62,6 +63,8 @@ def get_args_parser():
     parser.add_argument('--pair_downsample', default=1.0, type=float)
     parser.add_argument('--noise_level', default=0.1, type=float,
                     help='Maximum noise level for RGB images')
+    parser.add_argument('--curve_type', default='gaussion', type=str)
+    parser.add_argument('--optimize_type', default='mse', type=str)
 
     return parser
 
