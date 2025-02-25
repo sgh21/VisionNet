@@ -92,58 +92,128 @@ def data_statistics(errors, error_cut=0.9973, dtype='laplace', optimize_type='ms
         mean, std = optimized_params
         return mean + 3 * std
 
+
 def plot_error_distribution(errors_x, errors_y, errors_rz, save_path, dtype='gaussian', optimize_type='mse'):
     """绘制误差分布直方图和分布拟合曲线"""
+    # 使用matplotlib内置样式
+    plt.style.use('classic')  # 或使用其他内置样式如 'bmh', 'ggplot', 'default'
+    
+    # 设置全局字体和样式
+    plt.rcParams.update({
+        'font.size': 10,
+        'axes.grid': True,
+        'grid.alpha': 0.3,
+        'axes.axisbelow': True
+    })
+    
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
 
-    # 绘制拉普拉斯分布
-    def plot_with_laplace(ax, data, title, xlabel):
-        # 使用拟合方法优化参数
-        optimized_params = fit_data(data, dist_type='laplace', optimize_type=optimize_type)
-        loc, scale = optimized_params
+    def plot_distribution(ax, data, title, xlabel):
+        # 计算数据统计量
+        mean = np.mean(data)
+        std = np.std(data)
+        
+        # 使用Freedman-Diaconis规则计算bin宽度
+        iqr = np.percentile(data, 75) - np.percentile(data, 25)
+        bin_width = 2 * iqr / (len(data) ** (1/3))
+        n_bins = int((max(data) - min(data)) / bin_width)
+        n_bins = min(max(n_bins, 50), 100)  # 限制bins范围
         
         # 绘制直方图
-        ax.hist(data, bins=30, density=True, alpha=0.7, label='Histogram')
+        # 改进直方图样式
+        ax.hist(data, bins=n_bins, density=True, alpha=0.7, 
+                color='lightblue', edgecolor='darkblue', linewidth=0.8,
+                label='Histogram')
         
-        # 生成拉普拉斯分布曲线
-        x = np.linspace(min(data), max(data), 100)
-        laplace_pdf = 1 / (2 * scale) * np.exp(-np.abs(x - loc) / scale)
-        ax.plot(x, laplace_pdf, 'r-', label=f'loc={loc:.2f}\nscale={scale:.2f}')
+        # 设置x轴范围
+        x_min = mean - 4*std
+        x_max = mean + 4*std
+        x = np.linspace(x_min, x_max, 200)
         
-        ax.set_title(title)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel('Density')
-        ax.legend()
+        # 拟合参数
+        optimized_params = fit_data(data, dist_type=dtype, optimize_type=optimize_type)
+        
+        if dtype == 'laplace':
+            loc, scale = optimized_params
+            pdf = laplace.pdf(x, loc, scale)
+            label = f'Laplace\nloc={loc:.3f}\nscale={scale:.3f}'
+        else:
+            mean, std = optimized_params
+            pdf = norm.pdf(x, mean, std)
+            label = f'Gaussian\nμ={mean:.3f}\nσ={std:.3f}'
+            
+        # 改进拟合曲线样式
+        ax.plot(x, pdf, '-', color='red', linewidth=2, label=label)
+        
+        # 设置更多图形属性
+        ax.set_title(title, fontsize=12, pad=10, fontweight='bold')
+        ax.set_xlabel(xlabel, fontsize=10)
+        ax.set_ylabel('Density', fontsize=10)
+        ax.legend(fontsize=8, framealpha=0.8)
+        ax.grid(True, linestyle='--', alpha=0.3)
+        ax.set_xlim(x_min, x_max)
 
-    # 绘制正态分布
-    def plot_with_gaussian(ax, data, title, xlabel):
-        # 使用拟合方法优化参数
-        optimized_params = fit_data(data, dist_type='gaussian', optimize_type=optimize_type)
-        mean, std = optimized_params
-        
-        # 绘制直方图
-        ax.hist(data, bins=30, density=True, alpha=0.7, label='Histogram')
-        
-        # 生成正态分布曲线
-        x = np.linspace(min(data), max(data), 100)
-        gaussian_pdf = 1 / (std * np.sqrt(2 * np.pi)) * np.exp(-(x - mean) ** 2 / (2 * std ** 2))
-        ax.plot(x, gaussian_pdf, 'r-', label=f'μ={mean:.2f}\nσ={std:.2f}')
-        
-        ax.set_title(title)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel('Density')
-        ax.legend()
-
-    # 根据选择绘制拉普拉斯或正态分布
-    if dtype == 'laplace':
-        plot_with_laplace(ax1, errors_x, 'X Error Distribution', 'Error (mm)')
-        plot_with_laplace(ax2, errors_y, 'Y Error Distribution', 'Error (mm)')
-        plot_with_laplace(ax3, errors_rz, 'Rz Error Distribution', 'Error (deg)')
-    elif dtype == 'gaussian':
-        plot_with_gaussian(ax1, errors_x, 'X Error Distribution', 'Error (mm)')
-        plot_with_gaussian(ax2, errors_y, 'Y Error Distribution', 'Error (mm)')
-        plot_with_gaussian(ax3, errors_rz, 'Rz Error Distribution', 'Error (deg)')
+    # 绘制三个维度的分布
+    plot_distribution(ax1, errors_x, 'X Error Distribution', 'Error (mm)')
+    plot_distribution(ax2, errors_y, 'Y Error Distribution', 'Error (mm)')
+    plot_distribution(ax3, errors_rz, 'Rz Error Distribution', 'Error (deg)')
     
     plt.tight_layout()
-    plt.savefig(save_path)
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
+
+# def plot_error_distribution(errors_x, errors_y, errors_rz, save_path, dtype='gaussian', optimize_type='mse'):
+#     """绘制误差分布直方图和分布拟合曲线"""
+#     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
+
+#     # 绘制拉普拉斯分布
+#     def plot_with_laplace(ax, data, title, xlabel):
+#         # 使用拟合方法优化参数
+#         optimized_params = fit_data(data, dist_type='laplace', optimize_type=optimize_type)
+#         loc, scale = optimized_params
+        
+#         # 绘制直方图
+#         ax.hist(data, bins=30, density=True, alpha=0.7, label='Histogram')
+        
+#         # 生成拉普拉斯分布曲线
+#         x = np.linspace(min(data), max(data), 100)
+#         laplace_pdf = 1 / (2 * scale) * np.exp(-np.abs(x - loc) / scale)
+#         ax.plot(x, laplace_pdf, 'r-', label=f'loc={loc:.2f}\nscale={scale:.2f}')
+        
+#         ax.set_title(title)
+#         ax.set_xlabel(xlabel)
+#         ax.set_ylabel('Density')
+#         ax.legend()
+
+#     # 绘制正态分布
+#     def plot_with_gaussian(ax, data, title, xlabel):
+#         # 使用拟合方法优化参数
+#         optimized_params = fit_data(data, dist_type='gaussian', optimize_type=optimize_type)
+#         mean, std = optimized_params
+        
+#         # 绘制直方图
+#         ax.hist(data, bins=30, density=True, alpha=0.7, label='Histogram')
+        
+#         # 生成正态分布曲线
+#         x = np.linspace(min(data), max(data), 100)
+#         gaussian_pdf = 1 / (std * np.sqrt(2 * np.pi)) * np.exp(-(x - mean) ** 2 / (2 * std ** 2))
+#         ax.plot(x, gaussian_pdf, 'r-', label=f'μ={mean:.2f}\nσ={std:.2f}')
+        
+#         ax.set_title(title)
+#         ax.set_xlabel(xlabel)
+#         ax.set_ylabel('Density')
+#         ax.legend()
+
+#     # 根据选择绘制拉普拉斯或正态分布
+#     if dtype == 'laplace':
+#         plot_with_laplace(ax1, errors_x, 'X Error Distribution', 'Error (mm)')
+#         plot_with_laplace(ax2, errors_y, 'Y Error Distribution', 'Error (mm)')
+#         plot_with_laplace(ax3, errors_rz, 'Rz Error Distribution', 'Error (deg)')
+#     elif dtype == 'gaussian':
+#         plot_with_gaussian(ax1, errors_x, 'X Error Distribution', 'Error (mm)')
+#         plot_with_gaussian(ax2, errors_y, 'Y Error Distribution', 'Error (mm)')
+#         plot_with_gaussian(ax3, errors_rz, 'Rz Error Distribution', 'Error (deg)')
+    
+#     plt.tight_layout()
+#     plt.savefig(save_path)
+#     plt.close()

@@ -153,17 +153,17 @@ def main(args):
                 'MAE_Rz': f'{batch_mae_rz:.4f}'
             })
 
-            # # 可视化结果
-            # for i in range(img1.size(0)):
-            #     save_path = os.path.join(args.output_dir, f'pair_{batch_idx}_{i}.png')
+            # 可视化结果
+            for i in range(img1.size(0)):
+                save_path = os.path.join(args.output_dir, f'pair_{batch_idx}_{i}.png')
                 
-            #     visualize_results_rgb(
-            #         img1[i].cpu(), 
-            #         img2[i].cpu(),
-            #         pred[i].cpu().numpy(),
-            #         delta_label[i].cpu().numpy(),
-            #         save_path
-            #     )
+                visualize_results_rgb(
+                    img1[i].cpu(), 
+                    img2[i].cpu(),
+                    pred[i].cpu().numpy(),
+                    delta_label[i].cpu().numpy(),
+                    save_path
+                )
     
     # 计算统计量
     all_maes = np.stack([all_maes_x, all_maes_y, all_maes_rz], axis=1)  # [num_samples, 3] 
