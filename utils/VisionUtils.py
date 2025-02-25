@@ -218,30 +218,36 @@ def add_radial_noise(image, max_noise=0.1):
     return image + noise
 
 def plot_error_distribution(errors_x, errors_y, errors_rz, save_path):
-    """绘制误差分布直方图"""
+    """绘制误差分布直方图和正态分布拟合曲线"""
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
     
-    # X轴误差分布
-    ax1.hist(errors_x, bins=30, density=True, alpha=0.7)
-    ax1.set_title('X Error Distribution')
-    ax1.set_xlabel('Error (mm)')
-    ax1.set_ylabel('Density')
+    # 计算统计量并绘制
+    def plot_with_gaussian(ax, data, title, xlabel):
+        mean = np.mean(data)
+        std = np.std(data)
+        
+        # 绘制直方图
+        ax.hist(data, bins=30, density=True, alpha=0.7, label='Histogram')
+        
+        # 生成正态分布曲线
+        x = np.linspace(min(data), max(data), 100)
+        gaussian = 1/(std * np.sqrt(2*np.pi)) * np.exp(-(x-mean)**2/(2*std**2))
+        ax.plot(x, gaussian, 'r-', label=f'μ={mean:.2f}\nσ={std:.2f}')
+        
+        ax.set_title(title)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel('Density')
+        ax.legend()
     
-    # Y轴误差分布
-    ax2.hist(errors_y, bins=30, density=True, alpha=0.7)
-    ax2.set_title('Y Error Distribution')
-    ax2.set_xlabel('Error (mm)')
-    ax2.set_ylabel('Density')
-    
-    # Rz误差分布
-    ax3.hist(errors_rz, bins=30, density=True, alpha=0.7)
-    ax3.set_title('Rz Error Distribution')
-    ax3.set_xlabel('Error (deg)')
-    ax3.set_ylabel('Density')
+    # 绘制三个维度的分布
+    plot_with_gaussian(ax1, errors_x, 'X Error Distribution', 'Error (mm)')
+    plot_with_gaussian(ax2, errors_y, 'Y Error Distribution', 'Error (mm)')
+    plot_with_gaussian(ax3, errors_rz, 'Rz Error Distribution', 'Error (deg)')
     
     plt.tight_layout()
     plt.savefig(save_path)
     plt.close()
+    
 if __name__ == "__main__":
     root_path = "/home/sgh/data/WorkSpace/MultiMAE/dataset/train_data_0208/rgb/"
     # rotate_images(root_path)

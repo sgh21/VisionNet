@@ -166,11 +166,12 @@ def main(args):
     all_maes = np.stack([all_maes_x, all_maes_y, all_maes_rz], axis=1)  # [num_samples, 3]
     avg_maes = np.mean(all_maes, axis=0)
     std_maes = np.std(all_maes, axis=0)
+    avg_maes_abs = np.mean(torch.abs(torch.tensor(all_maes)), axis=0)
     three_sigmas = avg_maes + 3 * std_maes
     print(f'Average MAE:')
-    print(f'X: {avg_maes[0]:.4f} mm')
-    print(f'Y: {avg_maes[1]:.4f} mm')
-    print(f'Rz: {avg_maes[2]:.4f} deg')
+    print(f'MAE_X: {avg_maes_abs[0]:.4f} mm')
+    print(f'MAE_Y: {avg_maes_abs[1]:.4f} mm')
+    print(f'MAE_Rz: {avg_maes_abs[2]:.4f} deg')
 
     print(f'mu + 3 * std(X):{three_sigmas[0]:.4f} mm')
     print(f'mu + 3 * std(Y):{three_sigmas[1]:.4f} mm')
