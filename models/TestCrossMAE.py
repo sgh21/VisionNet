@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from functools import partial
-from Footshone import MAEEncoder, CrossAttention
+from models.Footshone import MAEEncoder, CrossAttention
 
 class CrossMAE(nn.Module):
     def __init__(
@@ -41,16 +41,26 @@ class CrossMAE(nn.Module):
         # !: 需要检查注意力模块儿是对谁进行注意力计算的
         self.cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
         
-        self.query_norm = norm_layer(embed_dim)
-        self.context_norm = norm_layer(embed_dim)
+        
         self.fc_norm = norm_layer(embed_dim)
+        self.feat_norm = norm_layer(embed_dim*2)
+        # 回归头 目前最为有效的回归头
+        # self.regressor = nn.Sequential(
+        #     nn.Linear(embed_dim * 2, embed_dim),
+        #     nn.ReLU(),
+        #     nn.Dropout(drop_rate),
+        #     nn.Linear(embed_dim, embed_dim//4),
+        #     nn.ReLU(),
+        #     nn.Dropout(drop_rate),
+        #     nn.Linear(embed_dim//4, feature_dim)
+        # )
 
-        # !: 测试新的回归头的效果 证明回归头简单反而效果更好
+        # !: 测试新的回归头的效果
         self.regressor = nn.Sequential(
-            nn.Linear(embed_dim * 2, embed_dim),
-            nn.GELU(),# !: 使用GELU激活函数，进行测试
-            nn.Dropout(drop_rate),
-            nn.Linear(embed_dim, feature_dim)
+            # nn.Linear(embed_dim * 2, embed_dim),
+            # nn.GELU(),
+            # nn.Dropout(drop_rate),
+            nn.Linear(embed_dim*2, feature_dim)
         )
 
         self.initialize_weights() 
@@ -66,12 +76,10 @@ class CrossMAE(nn.Module):
                 torch.nn.init.constant_(p, 0)
 
         # 初始化LayerNorm
-        torch.nn.init.constant_(self.query_norm.bias, 0)
-        torch.nn.init.constant_(self.query_norm.weight, 1.0)
-        torch.nn.init.constant_(self.context_norm.bias, 0)
-        torch.nn.init.constant_(self.context_norm.weight, 1.0)
         torch.nn.init.constant_(self.fc_norm.bias, 0)
         torch.nn.init.constant_(self.fc_norm.weight, 1.0)
+        torch.nn.init.constant_(self.feat_norm.bias, 0)
+        torch.nn.init.constant_(self.feat_norm.weight, 1.0)
 
         # 初始化regressor
         for m in self.regressor.modules():
@@ -95,8 +103,8 @@ class CrossMAE(nn.Module):
         # !: 根据官方的实现，在交叉注意力前加入了LayerNorm
         # *： 测试表明，加入LayerNorm后效果没有明显变化
         # !: 归一化层似乎用错了，对于query和context应该使用不同的归一化层
-        feat1_cross = self.cross_attention(self.query_norm(feat1), self.context_norm(feat2))  # [B, N, C] 
-        feat2_cross = self.cross_attention(self.query_norm(feat2), self.context_norm(feat1))  # [B, N, C]
+        feat1_cross = self.cross_attention(feat1, feat2)  # [B, N, C] 
+        feat2_cross = self.cross_attention(feat2, feat1)  # [B, N, C]
         
         # Feature fusion
         feat1_fusion = feat1_cross.mean(dim=1)  # [B, C]
@@ -105,7 +113,7 @@ class CrossMAE(nn.Module):
         feat2_fusion = self.fc_norm(feat2_fusion)
 
         feat_fusion = torch.cat([feat1_fusion, feat2_fusion], dim=1)  # [B, 2C]
-
+        # feat_fusion = self.feat_norm(feat_fusion)  # [B, 2C] # !: 测试归一化的效果
 
         pred = self.regressor(feat_fusion)  # [B, 3]
         

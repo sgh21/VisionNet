@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import models.TestCrossMAE as crossmae
 from pathlib import Path
-from utils.VisionUtils import add_radial_noise, visualize_results_rgb, plot_error_distribution
+from utils.VisionUtils import add_radial_noise, visualize_results_rgb, plot_error_distribution, data_statistics
 from utils.custome_datasets import CrossMAEDataset as EvalDataset
 
 def get_default_args():
@@ -59,8 +59,10 @@ def get_args_parser():
     parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--output_dir', default='./eval_results')
-    parser.add_argument('--sample_ratio', default=1.0, type=float)
+    parser.add_argument('--pair_downsample', default=1.0, type=float)
     parser.add_argument('--noise_level', default=0.1, type=float)
+    parser.add_argument('--curve_type', default='gaussion', type=str)
+    parser.add_argument('--optimize_type', default='mse', type=str)
     
     return parser
 
@@ -97,7 +99,7 @@ def main(args):
     ])
     
     # 创建数据加载器
-    dataset = EvalDataset(args, transform=transform)
+    dataset = EvalDataset(args, is_train = False,transform=transform,is_eval=True)
     dataloader = DataLoader(
         dataset,
         batch_size=args.batch_size,
@@ -150,36 +152,37 @@ def main(args):
                 'MAE_Rz': f'{batch_mae_rz:.4f}'
             })
 
-            # 可视化结果
-            for i in range(img1.size(0)):
-                save_path = os.path.join(args.output_dir, f'pair_{batch_idx}_{i}.png')
+            # # 可视化结果
+            # for i in range(img1.size(0)):
+            #     save_path = os.path.join(args.output_dir, f'pair_{batch_idx}_{i}.png')
                 
-                visualize_results_rgb(
-                    img1[i].cpu(), 
-                    img2[i].cpu(),
-                    pred[i].cpu().numpy(),
-                    delta_label[i].cpu().numpy(),
-                    save_path
-                )
+            #     visualize_results_rgb(
+            #         img1[i].cpu(), 
+            #         img2[i].cpu(),
+            #         pred[i].cpu().numpy(),
+            #         delta_label[i].cpu().numpy(),
+            #         save_path
+            #     )
     
     # 计算统计量
-    all_maes = np.stack([all_maes_x, all_maes_y, all_maes_rz], axis=1)  # [num_samples, 3]
-    avg_maes = np.mean(all_maes, axis=0)
-    std_maes = np.std(all_maes, axis=0)
-    avg_maes_abs = np.mean(torch.abs(torch.tensor(all_maes)), axis=0)
-    three_sigmas = avg_maes + 3 * std_maes
+    all_maes = np.stack([all_maes_x, all_maes_y, all_maes_rz], axis=1)  # [num_samples, 3] 
+    avg_maes_abs = np.mean(np.abs(all_maes), axis=0)
+   
     print(f'Average MAE:')
     print(f'MAE_X: {avg_maes_abs[0]:.4f} mm')
     print(f'MAE_Y: {avg_maes_abs[1]:.4f} mm')
     print(f'MAE_Rz: {avg_maes_abs[2]:.4f} deg')
 
-    print(f'mu + 3 * std(X):{three_sigmas[0]:.4f} mm')
-    print(f'mu + 3 * std(Y):{three_sigmas[1]:.4f} mm')
-    print(f'mu + 3 * std(Rz):{three_sigmas[2]:.4f} deg')
+    truncation_error_x = data_statistics(all_maes_x, error_cut=0.9973, dtype=args.curve_type,optimize_type=args.optimize_type)
+    truncation_error_y = data_statistics(all_maes_y, error_cut=0.9973, dtype=args.curve_type,optimize_type=args.optimize_type)
+    truncation_error_rz = data_statistics(all_maes_rz, error_cut=0.9973, dtype=args.curve_type,optimize_type=args.optimize_type)
+    print(f'mu + 3 * std(X):{truncation_error_x:.4f} mm')
+    print(f'mu + 3 * std(Y):{truncation_error_y:.4f} mm')
+    print(f'mu + 3 * std(Rz):{truncation_error_rz:.4f} deg')
 
-        # 绘制误差分布图
-    dist_plot_path = os.path.join(args.output_dir, 'error_distribution.png')
-    plot_error_distribution(all_maes_x, all_maes_y, all_maes_rz, dist_plot_path)
+    # 绘制误差分布图
+    dist_plot_path = os.path.join(args.output_dir, f'error_distribution_{args.curve_type}.png')
+    plot_error_distribution(all_maes_x, all_maes_y, all_maes_rz, dist_plot_path,dtype=args.curve_type,optimize_type=args.optimize_type)
     pbar.close()
 if __name__ == '__main__':
     args = get_args_parser().parse_args()

@@ -1,20 +1,22 @@
 # 模型参数
 input_size: 224
-embed_dim: 1024
-depth: 24
-model: crossmae_vit_large
-encoder_num_heads: 16
-cross_num_heads: 16
+embed_dim: 768
+depth: 12
+model: crossmae_vit_base
+encoder_num_heads: 12
+cross_num_heads: 12
 mlp_ratio: 4.0
 feature_dim: 3
 qkv_bias: true
 mask_ratio: 0.0
 
 # 评估参数
-weights: "./weights/crossmae_vit_large_bs16.pth" # change to your model path
-data_path: "./dataset/train_data_0208/val"
-batch_size: 8
+weights: "./weights/crossmae_vit_base_vision.pth" # change to your model path
+data_path: "./dataset/train_data_0208"
+batch_size: 64
 num_workers: 4
-sample_ratio: 0.01
+pair_downsample: 0.1
 device: "cuda"
-output_dir: "./experiment/crossmae/outputs/exp_mr0.0_bias/eval"
+output_dir: "./experiment/crossmae/eval/exp_mr0.0_bias/test"
+curve_type: gaussian
+optimizer_type: mse
