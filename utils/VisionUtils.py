@@ -217,6 +217,31 @@ def add_radial_noise(image, max_noise=0.1):
     noise = noise.to(image.device)
     return image + noise
 
+def plot_error_distribution(errors_x, errors_y, errors_rz, save_path):
+    """绘制误差分布直方图"""
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
+    
+    # X轴误差分布
+    ax1.hist(errors_x, bins=30, density=True, alpha=0.7)
+    ax1.set_title('X Error Distribution')
+    ax1.set_xlabel('Error (mm)')
+    ax1.set_ylabel('Density')
+    
+    # Y轴误差分布
+    ax2.hist(errors_y, bins=30, density=True, alpha=0.7)
+    ax2.set_title('Y Error Distribution')
+    ax2.set_xlabel('Error (mm)')
+    ax2.set_ylabel('Density')
+    
+    # Rz误差分布
+    ax3.hist(errors_rz, bins=30, density=True, alpha=0.7)
+    ax3.set_title('Rz Error Distribution')
+    ax3.set_xlabel('Error (deg)')
+    ax3.set_ylabel('Density')
+    
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
 if __name__ == "__main__":
     root_path = "/home/sgh/data/WorkSpace/MultiMAE/dataset/train_data_0208/rgb/"
     # rotate_images(root_path)

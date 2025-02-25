@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import models.TestCrossMAE as crossmae
 from pathlib import Path
-from utils.VisionUtils import add_radial_noise, visualize_results_rgb
+from utils.VisionUtils import add_radial_noise, visualize_results_rgb, plot_error_distribution
 from utils.custome_datasets import CrossMAEDataset as EvalDataset
 
 def get_default_args():
@@ -66,9 +66,9 @@ def get_args_parser():
 
 
 def calculate_dim_mae(pred, target):
-    mae_x = torch.abs(pred[:,0] - target[:,0])
-    mae_y = torch.abs(pred[:,1] - target[:,1])
-    mae_rz = torch.abs(pred[:,2] - target[:,2])
+    mae_x = pred[:,0] - target[:,0]
+    mae_y = pred[:,1] - target[:,1]
+    mae_rz = pred[:,2] - target[:,2]
     return mae_x, mae_y, mae_rz
 
 def main(args):
@@ -140,9 +140,9 @@ def main(args):
             # 更新进度条描述
             pbar.update(1)            
             # 显示当前batch的平均值
-            batch_mae_x = mae_x.mean().item()
-            batch_mae_y = mae_y.mean().item()
-            batch_mae_rz = mae_rz.mean().item()
+            batch_mae_x = torch.abs(mae_x).mean().item()
+            batch_mae_y = torch.abs(mae_y).mean().item()
+            batch_mae_rz = torch.abs(mae_rz).mean().item()
             
             pbar.set_postfix({
                 'MAE_X': f'{batch_mae_x:.4f}',
@@ -175,6 +175,10 @@ def main(args):
     print(f'mu + 3 * std(X):{three_sigmas[0]:.4f} mm')
     print(f'mu + 3 * std(Y):{three_sigmas[1]:.4f} mm')
     print(f'mu + 3 * std(Rz):{three_sigmas[2]:.4f} deg')
+
+        # 绘制误差分布图
+    dist_plot_path = os.path.join(args.output_dir, 'error_distribution.png')
+    plot_error_distribution(all_maes_x, all_maes_y, all_maes_rz, dist_plot_path)
     pbar.close()
 if __name__ == '__main__':
     args = get_args_parser().parse_args()
