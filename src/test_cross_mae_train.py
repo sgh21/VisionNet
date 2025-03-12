@@ -53,7 +53,7 @@ def get_args_parser():
     parser.add_argument('--epochs', default=100, type=int)
     parser.add_argument('--accum_iter', default=1, type=int)
     parser.add_argument('--input_size', default=224, type=int)
-
+    parser.add_argument('--use_fix_template', action='store_true')
     # Model parameters
     parser.add_argument('--model', default='crossmae', type=str, metavar='MODEL')
     parser.add_argument('--embed_dim', default=1024, type=int) 
@@ -273,8 +273,8 @@ def main(args):
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
     
-    dataset_train = CrossMAEDataset(args, is_train=True, transform=transform_train)
-    dataset_val = CrossMAEDataset(args, is_train=False, transform=transform_val)
+    dataset_train = CrossMAEDataset(args, is_train=True, transform=transform_train,  use_fix_template=args.use_fix_template)
+    dataset_val = CrossMAEDataset(args, is_train=False, transform=transform_val,  use_fix_template=args.use_fix_template)
 
     # 使用普通随机采样器
     sampler_train = torch.utils.data.RandomSampler(dataset_train)

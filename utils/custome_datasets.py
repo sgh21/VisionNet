@@ -7,7 +7,7 @@ from torch.utils.data import Dataset
 
 class CrossMAEDataset(Dataset):
     """CrossMAE训练数据集"""
-    def __init__(self, config, is_train=True, transform=None, is_eval = False):
+    def __init__(self, config, is_train=True, transform=None, is_eval = False, use_fix_template = False):
         self.is_train = is_train
         self.is_eval = is_eval
         root = os.path.join(config.data_path, 'train' if is_train else 'val')
@@ -24,16 +24,24 @@ class CrossMAEDataset(Dataset):
             self.class_to_imgs[class_name].append(img_file)
             
         # 生成所有可能的图片对
-        self.pairs = self._generate_pairs()
+        self.pairs = self._generate_pairs(use_fix_template = use_fix_template)
         self.transform = transform
 
-    def _generate_pairs(self):
+    def _generate_pairs(self, use_fix_template = False):
         """生成训练/验证图片对"""
         pairs = []
         for class_name, imgs in self.class_to_imgs.items():
-            class_pairs = [(imgs[i], imgs[j]) 
-                          for i in range(len(imgs))
-                          for j in range(i+1, len(imgs))]
+
+            if use_fix_template:
+                # : 使用第0张图片作为固定模板
+                index0 = int(imgs[0].split('_')[-1].split('.')[0])
+                assert index0 == 0, 'The first image should be the template'
+                class_pairs = [(imgs[0], imgs[i]) 
+                          for i in range(1,len(imgs))]
+            else:
+                class_pairs = [(imgs[i], imgs[j]) 
+                            for i in range(len(imgs))
+                            for j in range(i+1, len(imgs))]
             
             if self.is_train or self.is_eval:  # 训练集下采样
                 num_samples = int(len(class_pairs) * self.sample_ratio)
@@ -92,7 +100,7 @@ class MultiCrossMAEDataset(Dataset):
     return:
         rgb_img1, rgb_img2, touch_img1, touch_img2, label1, label2
     """
-    def __init__(self, config, is_train=True, rgb_transform=None, touch_transform=None, is_eval=False):
+    def __init__(self, config, is_train=True, rgb_transform=None, touch_transform=None, is_eval=False, use_fix_template = False):
         self.is_train = is_train
         root = os.path.join(config.data_path, 'train' if is_train else 'val')
         self.rgb_img_dir = os.path.join(root, 'rgb_images')
@@ -110,18 +118,25 @@ class MultiCrossMAEDataset(Dataset):
             self.class_to_imgs[class_name].append(img_file)
             
         # 生成所有可能的图片对
-        self.rgb_pairs,self.touch_pairs = self._generate_pairs()
+        self.rgb_pairs,self.touch_pairs = self._generate_pairs(use_fix_template = use_fix_template)
         self.rgb_transform = rgb_transform
         self.touch_transform = touch_transform
 
-    def _generate_pairs(self):
+    def _generate_pairs(self, use_fix_template = False):
         """生成训练/验证图片对"""
         rgb_pairs = []
         touch_pairs = []
         for class_name, imgs in self.class_to_imgs.items():
-            class_pairs = [(imgs[i], imgs[j]) 
-                          for i in range(len(imgs))
-                          for j in range(i+1, len(imgs))]
+            if use_fix_template:
+                # : 使用第0张图片作为固定模板
+                index0 = int(imgs[0].split('_')[-1].split('.')[0])
+                assert index0 == 0, 'The first image should be the template'
+                class_pairs = [(imgs[0], imgs[i]) 
+                          for i in range(1,len(imgs))]
+            else:
+                class_pairs = [(imgs[i], imgs[j]) 
+                            for i in range(len(imgs))
+                            for j in range(i+1, len(imgs))]
             
             if self.is_train or self.is_eval:  # 训练集下采样
                 num_samples = int(len(class_pairs) * self.sample_ratio)

@@ -6,6 +6,7 @@ batch_size: 4
 epochs: 100     # epochs 增大只会使训练时间变长，不会提高模型性能
 input_size: 224 
 num_workers: 4
+use_fix_template: true
 
 # 模型参数  
 embed_dim: 768

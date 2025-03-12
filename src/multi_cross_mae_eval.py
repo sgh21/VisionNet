@@ -85,6 +85,7 @@ def main(args):
         cross_num_heads=args.cross_num_heads,
         feature_dim=args.feature_dim,
         qkv_bias=args.qkv_bias,
+        cross_attention=False
     )
     
     # 加载权重
