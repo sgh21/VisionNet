@@ -220,11 +220,11 @@ def add_radial_noise(image, max_noise=0.1):
 
 
 if __name__ == "__main__":
-    root_path = "/home/sgh/data/WorkSpace/MultiMAE/dataset/train_data_0208/rgb/"
-    # rotate_images(root_path)
-    # IMAGE_PLUG_TOUCH_MEAN = [0.24898757, 0.45462582, 0.4540073]
-    # IMAGE_PLUG_TOUCH_STD = [0.08211885, 0.04238947, 0.09368436]
-    IMAGE_PLUG_MEAN = [0.46378568, 0.36478597, 0.27725574]
-    IMAGE_PLUG_STD = [0.26775154, 0.17099987, 0.14608   ]
-    # mean_std_statistics(root_path)
-    show_image(root_path, True, IMAGE_PLUG_MEAN, IMAGE_PLUG_STD)
+    root_path = "/home/sgh/data/WorkSpace/VisionNet/dataset/train_data_0312/train_data_mae_vision+touch/TOUCH/3524P_TOUCH/RO"
+    rotate_images(root_path)
+    # # IMAGE_PLUG_TOUCH_MEAN = [0.24898757, 0.45462582, 0.4540073]
+    # # IMAGE_PLUG_TOUCH_STD = [0.08211885, 0.04238947, 0.09368436]
+    # IMAGE_PLUG_MEAN = [0.46378568, 0.36478597, 0.27725574]
+    # IMAGE_PLUG_STD = [0.26775154, 0.17099987, 0.14608   ]
+    # # mean_std_statistics(root_path)
+    # show_image(root_path, True, IMAGE_PLUG_MEAN, IMAGE_PLUG_STD)

@@ -34,9 +34,10 @@ class CrossMAEDataset(Dataset):
 
             if use_fix_template:
                 # : 使用第0张图片作为固定模板
-                index0 = int(imgs[0].split('_')[-1].split('.')[0])
-                assert index0 == 0, 'The first image should be the template'
-                class_pairs = [(imgs[0], imgs[i]) 
+                image_template = 'image_' + class_name + '_0.png'
+                # index0 = int(imgs[0].split('_')[-1].split('.')[0])
+                # assert index0 == 0, 'The first image should be the template'
+                class_pairs = [(image_template, imgs[i]) 
                           for i in range(1,len(imgs))]
             else:
                 class_pairs = [(imgs[i], imgs[j]) 
@@ -129,9 +130,10 @@ class MultiCrossMAEDataset(Dataset):
         for class_name, imgs in self.class_to_imgs.items():
             if use_fix_template:
                 # : 使用第0张图片作为固定模板
-                index0 = int(imgs[0].split('_')[-1].split('.')[0])
-                assert index0 == 0, 'The first image should be the template'
-                class_pairs = [(imgs[0], imgs[i]) 
+                img_template = 'image_' + class_name + '_0.png'
+                # index0 = int(imgs[0].split('_')[-1].split('.')[0])
+                # assert index0 == 0, 'The first image should be the template'
+                class_pairs = [(img_template, imgs[i]) 
                           for i in range(1,len(imgs))]
             else:
                 class_pairs = [(imgs[i], imgs[j]) 

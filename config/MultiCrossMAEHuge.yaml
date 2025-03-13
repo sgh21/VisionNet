@@ -1,0 +1,37 @@
+# 数据集配置
+data_path: ./dataset/train_data_0218
+
+# 训练参数
+batch_size: 1
+epochs: 100     # epochs 增大只会使训练时间变长，不会提高模型性能
+input_size: 224 
+num_workers: 4
+use_fix_template: true
+
+# 模型参数  
+model: multicrossmae_vit_base
+embed_dim: 768
+depth: 12
+encoder_num_heads: 12
+cross_num_heads: 12 # 头数变大，模型参数变多，训练时间变长，但模型性能基本不变
+mlp_ratio: 4
+mask_ratio: 0.0 # 在下游任务时，默认不使用mask
+feature_dim: 3
+qkv_bias: true # 带bias会些许提高模型性能
+cross_attention: false
+
+# 优化器参数
+weight_decay: 0.05
+lr: null
+blr": 0.001 # 优化器的学习率,学习率太大会收敛变慢，学习率小收敛快，但容易陷入局部最优，减小学习率可以提高模型最终性能
+min_lr: 0   # 当回归头层数变少时，学习率变小并没有让模型具有更好的逼近能力
+warmup_epochs: 5 # warmup没有太明显的影响，设置1范围为5-10%的范围即可
+
+# 数据增强参数
+pair_downsample: 0.01
+
+# 路径配置
+output_dir: "./experiment/crossmae/outputs/exp_mr0.75_bias"
+log_dir: "./experiment/crossmae/logs/exp_mr0.75_bias"
+rgb_pretrained: "./weights/mae_vit_base_touch+rgb_1600e.pth"
+touch_pretrained: "./weights/mae_vit_base_touch+rgb_1600e.pth"
