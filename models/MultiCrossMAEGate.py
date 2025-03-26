@@ -152,8 +152,11 @@ class MultiCrossMAEGate(nn.Module):
         touch_query = touch_query * touch_weight
         
         # Fusion
-        fusion_latent = torch.cat((rgb_query, touch_query), dim=1)
+        # !: 使用加法融合
+        fusion_latent = rgb_query + touch_query
         fusion_latent = self.feat_norm(fusion_latent)
+        # fusion_latent = torch.cat((rgb_query, touch_query), dim=1)
+        # fusion_latent = self.feat_norm(fusion_latent)
 
         return fusion_latent, keep_mask, rgb_weight
 
@@ -161,7 +164,7 @@ class MultiCrossMAEGate(nn.Module):
     def forward(self, rgb_img1, rgb_img2, touch_img1, touch_img2, mask_ratio=0.75,mask_rgb = False):
         # 融合跨模态特征
         fusion_feat1, keep_mask, rgb1_weight = self.forward_fusion_modal(rgb_img1, touch_img1, mask_ratio, keep_mask=None, mask_rgb = mask_rgb)
-        fusion_feat2, _, rgb2_weight = self.forward_fusion_modal(rgb_img2, touch_img2, mask_ratio, keep_mask=keep_mask, mask_rgb = mask_rgb, rgb_weight=rgb1_weight)
+        fusion_feat2, _, rgb2_weight = self.forward_fusion_modal(rgb_img2, touch_img2, mask_ratio, keep_mask=keep_mask, mask_rgb = mask_rgb)
        
 
         # 对比组间特征
