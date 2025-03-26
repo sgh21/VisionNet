@@ -99,7 +99,7 @@ class MultiCrossMAEGate(nn.Module):
                     torch.nn.init.constant_(m.bias, 0)
 
     
-    def forward_fusion_modal(self, rgb_img, touch_img, mask_ratio=0.75, keep_mask = None, mask_rgb = False):
+    def forward_fusion_modal(self, rgb_img, touch_img, mask_ratio=0.75, keep_mask = None, mask_rgb = False, rgb_weight = None):
         """
         融合同一组数据的两个模态的特征
 
@@ -140,10 +140,14 @@ class MultiCrossMAEGate(nn.Module):
             touch_query = self.crossmodal_cross_attention(self.touch_norm(touch_latent), self.rgb_norm(rgb_latent))
         
         # !: 根据图片的重要性进行加权 尝试softmax,不进行cat等
-        rgb_weight = rgb_lambda/(rgb_lambda + touch_lambda)
-        touch_weight = touch_lambda/(rgb_lambda + touch_lambda)
-        rgb_weight = rgb_weight.unsqueeze(1)
-        touch_weight = touch_weight.unsqueeze(1)
+        if rgb_weight is None:
+            rgb_weight = rgb_lambda/(rgb_lambda + touch_lambda)
+            touch_weight = touch_lambda/(rgb_lambda + touch_lambda)
+            rgb_weight = rgb_weight.unsqueeze(1)
+            touch_weight = touch_weight.unsqueeze(1)
+        else: 
+            touch_weight = 1 - rgb_weight
+
         rgb_query = rgb_query * rgb_weight
         touch_query = touch_query * touch_weight
         
@@ -157,7 +161,7 @@ class MultiCrossMAEGate(nn.Module):
     def forward(self, rgb_img1, rgb_img2, touch_img1, touch_img2, mask_ratio=0.75,mask_rgb = False):
         # 融合跨模态特征
         fusion_feat1, keep_mask, rgb1_weight = self.forward_fusion_modal(rgb_img1, touch_img1, mask_ratio, keep_mask=None, mask_rgb = mask_rgb)
-        fusion_feat2, _, rgb2_weight = self.forward_fusion_modal(rgb_img2, touch_img2, mask_ratio, keep_mask=keep_mask, mask_rgb = mask_rgb)
+        fusion_feat2, _, rgb2_weight = self.forward_fusion_modal(rgb_img2, touch_img2, mask_ratio, keep_mask=keep_mask, mask_rgb = mask_rgb, rgb_weight=rgb1_weight)
        
 
         # 对比组间特征
