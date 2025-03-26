@@ -3,6 +3,8 @@ import random
 from PIL import Image
 import torch
 from torch.utils.data import Dataset
+import random
+from utils.VisionUtils import add_radial_noise
 
 
 class CrossMAEDataset(Dataset):
@@ -101,7 +103,7 @@ class MultiCrossMAEDataset(Dataset):
     return:
         rgb_img1, rgb_img2, touch_img1, touch_img2, label1, label2
     """
-    def __init__(self, config, is_train=True, rgb_transform=None, touch_transform=None, is_eval=False, use_fix_template = False):
+    def __init__(self, config, is_train=True, rgb_transform=None, touch_transform=None, is_eval=False, use_fix_template = False, add_noise = False, **kwargs):
         self.is_train = is_train
         root = os.path.join(config.data_path, 'train' if is_train else 'val')
         self.rgb_img_dir = os.path.join(root, 'rgb_images')
@@ -109,6 +111,12 @@ class MultiCrossMAEDataset(Dataset):
         self.label_dir = os.path.join(root, 'labels')
         self.sample_ratio = config.pair_downsample
         self.is_eval = is_eval
+        self.add_noise = add_noise
+        # TODO: 从**kwargs中获取其他参数
+        self.noise_ratio = kwargs.get('noise_ratio', 0.1)
+        self.noise_level = kwargs.get('noise_level', 0.1)
+        # *:用于测试添加噪声比例的计数器
+        self.test_count = 0
 
         # 按类别组织图片
         self.class_to_imgs = {}
@@ -175,6 +183,13 @@ class MultiCrossMAEDataset(Dataset):
         if self.touch_transform:
             touch_img1 = self.touch_transform(touch_img1)
             touch_img2 = self.touch_transform(touch_img2)
+        
+        noise_sampler = random.uniform(0,1)
+        if self.add_noise and noise_sampler < self.noise_ratio:
+            noise_level = random.uniform(0.1, self.noise_level)
+            rgb_img1 = add_radial_noise(rgb_img1, noise_level)
+            self.test_count +=1
+            print(f"Add noise to {self.test_count} images")
         
         # 加载标签
         label1 = self._load_label(os.path.join(self.label_dir, rgb_img1_name.replace('.png', '.txt')))
