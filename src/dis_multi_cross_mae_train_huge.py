@@ -116,6 +116,9 @@ def get_args_parser():
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument('--pin_mem', action='store_true')
+    parser.add_argument('--add_noise', action='store_true')
+    parser.add_argument('--noise_ratio', default=0.1,type=float)
+    parser.add_argument('--noise_level', default=0.1, type=float)
     
     # 预训练权重
     parser.add_argument('--rgb_pretrained', default='', type=str)
@@ -341,7 +344,13 @@ def main(args):
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
     dataset_train = MultiCrossMAEDataset(args, is_train=True, rgb_transform=rgb_transform_train, touch_transform=touch_transform_train,  use_fix_template=args.use_fix_template)
-    dataset_val = MultiCrossMAEDataset(args, is_train=False, rgb_transform=rgb_transform_val, touch_transform=touch_transform_val,  use_fix_template=args.use_fix_template)
+    dataset_val = MultiCrossMAEDataset(args, is_train=False, 
+                                       rgb_transform=rgb_transform_val, 
+                                       touch_transform=touch_transform_val,  
+                                       use_fix_template=args.use_fix_template,
+                                       add_noise= args.add_noise,
+                                       noise_ratio = args.noise_ratio,
+                                       noise_level = args.noise_level)
 
     # Use DistributedSampler for distributed training
     sampler_train = DistributedSampler(dataset_train, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=True)

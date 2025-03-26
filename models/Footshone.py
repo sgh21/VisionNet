@@ -27,13 +27,14 @@ class MAEEncoderGate(nn.Module):
         self.keep_constant = keep_constant
 
         # *: 门控网络层，用于评价输入质量
-        self.gate = nn.Sequential(
-            nn.Linear(embed_dim , embed_dim//4),
-            nn.GELU(),# !: 使用GELU激活函数，进行测试
-            nn.Dropout(drop_rate),
-            nn.Linear(embed_dim//4, 1),
-            nn.Sigmoid()
-        )
+        if self.keep_constant < 0:
+            self.gate = nn.Sequential(
+                nn.Linear(embed_dim , embed_dim//4),
+                nn.GELU(),# !: 使用GELU激活函数，进行测试
+                nn.Dropout(drop_rate),
+                nn.Linear(embed_dim//4, 1),
+                nn.Sigmoid()
+            )
 
         self.blocks = nn.ModuleList([
             Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer)

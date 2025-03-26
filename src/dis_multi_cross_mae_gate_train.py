@@ -9,7 +9,7 @@ import random
 import math
 import yaml
 from pathlib import Path
-
+import matplotlib.pyplot as plt
 import torch
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.transforms as transforms
@@ -31,17 +31,28 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 def setup_distributed_training(args):
     if 'LOCAL_RANK' in os.environ:
         args.local_rank = int(os.environ['LOCAL_RANK'])
-        args.world_size = int(os.environ['WORLD_SIZE'])
+    elif args.local_rank == -1 and hasattr(args, 'local-rank'):
+        args.local_rank = getattr(args, 'local-rank')
+    
+    if args.local_rank != -1:
+        args.distributed = True
+        args.world_size = int(os.environ.get('WORLD_SIZE', 1))
         args.device = torch.device(f'cuda:{args.local_rank}')
+        
+        # 设置环境变量
+        os.environ['MASTER_ADDR'] = '127.0.0.1'
+        os.environ['MASTER_PORT'] = '29500'
+        
+        torch.cuda.set_device(args.local_rank)
+        dist.init_process_group(
+            backend='nccl',
+            init_method='env://',
+            world_size=args.world_size,
+            rank=args.local_rank
+        )
     else:
-        print('Not using distributed mode')
         args.distributed = False
         args.device = torch.device('cuda:0')
-        return
-
-    args.distributed = True
-    torch.cuda.set_device(args.local_rank)
-    dist.init_process_group(backend='nccl')
 
 def cleanup():
     """Clean up distributed training processes."""
@@ -130,8 +141,10 @@ def get_args_parser():
                         help='path to yaml config file')
     
     # Distributed training parameters
-    parser.add_argument('--local_rank', default=0, type=int,
+    parser.add_argument('--local_rank', default=-1, type=int,
                         help='node rank for distributed training')
+    parser.add_argument('--local-rank', type=int, default=-1,
+                        help='local rank for DistributedDataParallel')  # 兼容性参数
     parser.add_argument('--distributed', action='store_true',
                         help='Use distributed training')
     # 添加分布式训练参数
@@ -159,6 +172,14 @@ def calculate_dim_mae(pred, target):
     mae_rz = torch.mean(torch.abs(pred[:, 2] - target[:, 2]))
     return mae_x, mae_y, mae_rz
 
+def calculate_correlation(noise_levels, lambda_values):
+    """计算Pearson相关系数"""
+    if len(noise_levels) == 0 or len(lambda_values) == 0:
+        return 0.0
+    noise_tensor = torch.tensor(noise_levels)
+    lambda_tensor = torch.tensor(lambda_values)
+    return torch.corrcoef(torch.stack([noise_tensor, lambda_tensor]))[0,1].item()
+
 def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.Optimizer, criterion, 
                     device: torch.device, epoch: int, loss_scaler, log_writer=None, args=None):
     model.train()  # 设置模型为训练模式
@@ -173,8 +194,10 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
 
     if log_writer is not None:
         print('log_dir: {}'.format(log_writer.log_dir))
+    noise_levels = []
+    lambda_values = []
 
-    for data_iter_step, (rgb_img1, rgb_img2, touch_img1, touch_img2, label1, label2) \
+    for data_iter_step, (rgb_img1, rgb_img2, touch_img1, touch_img2, label1, label2, noise_level) \
     in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         # 每累积一定步数调整学习率
         if data_iter_step % accum_iter == 0:
@@ -188,14 +211,16 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
         label2 = label2.to(device, non_blocking=True)
 
         with torch.cuda.amp.autocast():  # 混合精度训练
-            pred = model(rgb_img1, rgb_img2, touch_img1, touch_img2, args.mask_ratio)  # 模型输出
+            pred, rgb1_weight = model(rgb_img1, rgb_img2, touch_img1, touch_img2, args.mask_ratio)  # 模型输出
             delta_label = label2 - label1  # 计算标签的差值
-            
+            lambda_values.extend(rgb1_weight.cpu().detach().numpy())
+            noise_levels.extend(noise_level.cpu().detach().numpy())
             # 归一化标签
             delta_label = label_normalize(delta_label, weight=loss_norm)
             pred = label_normalize(pred, weight=loss_norm)
             loss = criterion(pred, delta_label)  # 计算损失
         
+
         loss_value = loss.item()
 
         if not math.isfinite(loss_value):
@@ -222,8 +247,23 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
             log_writer.add_scalar('train_loss', loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('lr', lr, epoch_1000x)
 
+        # 在epoch结束时计算相关系数并记录
+    if log_writer is not None:
+        correlation = calculate_correlation(noise_levels, lambda_values)
+        log_writer.add_scalar('noise_lambda/correlation', correlation, epoch)
+        
+        # 添加散点图
+        fig = plt.figure(figsize=(10, 6))
+        plt.scatter(noise_levels, lambda_values, alpha=0.5)
+        plt.xlabel('Noise Level')
+        plt.ylabel('Lambda Value')
+        plt.title(f'Epoch {epoch}, Correlation: {correlation:.3f}')
+        log_writer.add_figure('noise_lambda/scatter_plot', fig, epoch)
+        plt.close()
     metric_logger.synchronize_between_processes()  # 跨进程同步
+
     print("Averaged stats:", metric_logger)
+
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 def validate(model, data_loader, criterion, device, epoch, log_writer=None, args=None):
@@ -237,7 +277,7 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
     total_rz_mae = 0
 
     with torch.no_grad():  # 在验证过程中不计算梯度
-        for rgb_img1, rgb_img2, touch_img1, touch_img2, label1, label2 in metric_logger.log_every(data_loader, 20, header):
+        for rgb_img1, rgb_img2, touch_img1, touch_img2, label1, label2, noise_level in metric_logger.log_every(data_loader, 20, header):
             
             rgb_img1 = rgb_img1.to(device, non_blocking=True)
             rgb_img2 = rgb_img2.to(device, non_blocking=True)
@@ -249,7 +289,7 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
             batch_size = args.batch_size
             print("\033[1;36;40m Batch_size per GPU:\033[0m", batch_size)
             with torch.cuda.amp.autocast():  # 混合精度验证
-                pred = model(rgb_img1, rgb_img2, touch_img1, touch_img2, args.mask_ratio)
+                pred, rgb1_weights = model(rgb_img1, rgb_img2, touch_img1, touch_img2, args.mask_ratio)
                 delta_label = label2 - label1
                 
                 # 归一化标签

@@ -142,6 +142,8 @@ class MultiCrossMAEGate(nn.Module):
         # !: 根据图片的重要性进行加权 尝试softmax,不进行cat等
         rgb_weight = rgb_lambda/(rgb_lambda + touch_lambda)
         touch_weight = touch_lambda/(rgb_lambda + touch_lambda)
+        rgb_weight = rgb_weight.unsqueeze(1)
+        touch_weight = touch_weight.unsqueeze(1)
         rgb_query = rgb_query * rgb_weight
         touch_query = touch_query * touch_weight
         
@@ -149,13 +151,13 @@ class MultiCrossMAEGate(nn.Module):
         fusion_latent = torch.cat((rgb_query, touch_query), dim=1)
         fusion_latent = self.feat_norm(fusion_latent)
 
-        return fusion_latent, keep_mask
+        return fusion_latent, keep_mask, rgb_weight
 
     
     def forward(self, rgb_img1, rgb_img2, touch_img1, touch_img2, mask_ratio=0.75,mask_rgb = False):
         # 融合跨模态特征
-        fusion_feat1, keep_mask = self.forward_fusion_modal(rgb_img1, touch_img1, mask_ratio, keep_mask=None, mask_rgb = mask_rgb)
-        fusion_feat2, _  = self.forward_fusion_modal(rgb_img2, touch_img2, mask_ratio, keep_mask=keep_mask, mask_rgb = mask_rgb)
+        fusion_feat1, keep_mask, rgb1_weight = self.forward_fusion_modal(rgb_img1, touch_img1, mask_ratio, keep_mask=None, mask_rgb = mask_rgb)
+        fusion_feat2, _, rgb2_weight = self.forward_fusion_modal(rgb_img2, touch_img2, mask_ratio, keep_mask=keep_mask, mask_rgb = mask_rgb)
        
 
         # 对比组间特征
@@ -173,7 +175,7 @@ class MultiCrossMAEGate(nn.Module):
         # 回归
         pred = self.regressor(feat_fusion)
 
-        return pred
+        return pred, rgb1_weight
 
 def create_multicrossmaegate_model(
         img_size=224,
@@ -189,7 +191,8 @@ def create_multicrossmaegate_model(
         feature_dim=3,
         drop_rate=0.1,
         qkv_bias=False,
-        pretrained_path= None,
+        rgb_pretrained_path = None, 
+        touch_pretrained_path = None,
         cross_attention = True,
         **kwargs
 ):
@@ -208,7 +211,8 @@ def create_multicrossmaegate_model(
     print(f"feature_dim: {feature_dim}")
     print(f"drop_rate: {drop_rate}")
     print(f"qkv_bias: {qkv_bias}")
-    print(f"pretrained_path: {pretrained_path}")
+    print(f"rgb_pretrained_path: {rgb_pretrained_path}")
+    print(f"touch_pretrained_path: {touch_pretrained_path}")
     print(f"cross_attention: {cross_attention}")
     
     model = MultiCrossMAEGate(
@@ -225,13 +229,14 @@ def create_multicrossmaegate_model(
         feature_dim=feature_dim,
         drop_rate=drop_rate,
         qkv_bias=qkv_bias,
-        pretrained_path=pretrained_path,
+        rgb_pretrained_path=rgb_pretrained_path,
+        touch_pretrained_path=touch_pretrained_path,
         cross_attention=cross_attention,
         **kwargs
     )
     return model
 
-def multicrossmaegate_vit_large_patch16_224(pretrained_path = None, **kwargs):
+def multicrossmaegate_vit_large_patch16_224(rgb_pretrained_path = None, touch_pretrained_path = None, **kwargs):
     return create_multicrossmaegate_model(
         img_size=224,
         patch_size=16,
@@ -240,11 +245,12 @@ def multicrossmaegate_vit_large_patch16_224(pretrained_path = None, **kwargs):
         depth=24,
         encoder_num_heads=16,
         mlp_ratio=4.,
-        pretrained_path=pretrained_path,
+        rgb_pretrained_path=rgb_pretrained_path,
+        touch_pretrained_path=touch_pretrained_path,
         **kwargs
     )
 
-def multicrossmaegate_vit_base_patch16_224(pretrained_path = None, **kwargs):
+def multicrossmaegate_vit_base_patch16_224(rgb_pretrained_path = None, touch_pretrained_path = None, **kwargs):
     return create_multicrossmaegate_model(
         img_size=224,
         patch_size=16,
@@ -253,7 +259,8 @@ def multicrossmaegate_vit_base_patch16_224(pretrained_path = None, **kwargs):
         depth=12,
         encoder_num_heads=12,
         mlp_ratio=4.,
-        pretrained_path=pretrained_path,
+        rgb_pretrained_path=rgb_pretrained_path,
+        touch_pretrained_path=touch_pretrained_path,
         **kwargs
    )
 
