@@ -166,6 +166,20 @@ class MAEEncoderGate(nn.Module):
         mean_x = x.mean(dim = 1)
         gate = self.gate(mean_x)
         return gate
+    def forward_gate_channel(self, x):
+        """
+        门控网络层
+
+        Args:
+            x (Tensor): 输入特征 (B, N, L)
+
+        Returns:
+            gate (Tensor): 门控值 (B, N, 1)
+        """
+        if self.keep_constant > 0:
+            return torch.ones(x.shape[0], x.shape[1], 1).to(x.device) * self.keep_constant
+        gate = self.gate(x)
+        return gate
     
     def forward_encoder(self, x, mask_ratio, keep_mask = None):
         # embed patches
@@ -178,7 +192,7 @@ class MAEEncoderGate(nn.Module):
         
         x, mask, ids_restore, ids_keep = self.random_masking(x, mask_ratio, keep_mask = keep_mask)
         
-        lambda_x = self.forward_gate(x)
+        lambda_x = self.forward_gate_channel(x) # (B, N, 1)
         # append cls token
         cls_token = self.cls_token + self.pos_embed[:, :1, :]
         cls_tokens = cls_token.expand(x.shape[0], -1, -1)

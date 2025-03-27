@@ -60,17 +60,17 @@ class MultiCrossMAEGate(nn.Module):
             # 是否使用跨模态交叉注意力
             self.crossmodal_cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
         
-        self.unimodal_cross_attention = CrossAttention(2*embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
+        self.unimodal_cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
         
         # 层归一化
-        self.fc_norm = norm_layer(4*embed_dim)
-        self.feat_norm = norm_layer(2*embed_dim)
+        self.fc_norm = norm_layer(2*embed_dim)
+        self.feat_norm = norm_layer(embed_dim)
         self.rgb_norm = norm_layer(embed_dim)
         self.touch_norm = norm_layer(embed_dim)
 
         # !: 测试新的回归头的效果 证明回归头简单反而效果更好
         self.regressor = nn.Sequential(
-            nn.Linear(embed_dim * 4, embed_dim),
+            nn.Linear(embed_dim * 2, embed_dim),
             nn.GELU(),# !: 使用GELU激活函数，进行测试
             nn.Dropout(drop_rate),
             nn.Linear(embed_dim, feature_dim)
@@ -143,8 +143,8 @@ class MultiCrossMAEGate(nn.Module):
         if rgb_weight is None:
             rgb_weight = rgb_lambda/(rgb_lambda + touch_lambda)
             touch_weight = touch_lambda/(rgb_lambda + touch_lambda)
-            rgb_weight = rgb_weight.unsqueeze(1)
-            touch_weight = touch_weight.unsqueeze(1)
+            # rgb_weight = rgb_weight.unsqueeze(1)
+            # touch_weight = touch_weight.unsqueeze(1)
         else: 
             touch_weight = 1 - rgb_weight
 
@@ -152,14 +152,14 @@ class MultiCrossMAEGate(nn.Module):
         touch_query = touch_query * touch_weight
         
         # Fusion
-        # fusion_latent = torch.cat((rgb_query, touch_query), dim=1)
+        fusion_latent = torch.cat((rgb_query, touch_query), dim=1)
         # fusion_latent = self.feat_norm(fusion_latent)
         # !: 使用加法融合
         # fusion_latent = rgb_query + touch_query
         # fusion_latent = self.feat_norm(fusion_latent)
         # !: 在特征维度拼接，然后再归一化
-        fusion_latent = torch.cat((rgb_query, touch_query), dim=-1)
-        fusion_latent = self.feat_norm(fusion_latent)
+        # fusion_latent = torch.cat((rgb_query, touch_query), dim=-1)
+        # fusion_latent = self.feat_norm(fusion_latent)
 
         return fusion_latent, keep_mask, rgb_weight
 
@@ -175,11 +175,11 @@ class MultiCrossMAEGate(nn.Module):
         feat2_cross = self.unimodal_cross_attention(fusion_feat2, fusion_feat1)
 
         # 对特征降维
-        feat1_downsample = feat1_cross.mean(dim=1) # [B, C] # *: [B, 2*C]
-        feat2_downsample = feat2_cross.mean(dim=1) # [B, C] # *: [B, 2*C]
+        feat1_downsample = feat1_cross.mean(dim=1) # [B, C] 
+        feat2_downsample = feat2_cross.mean(dim=1) # [B, C] 
 
         # 融合特征, 并进行回归
-        feat_fusion = torch.cat([feat1_downsample,feat2_downsample],dim = 1) # [B, 4*C]
+        feat_fusion = torch.cat([feat1_downsample,feat2_downsample],dim = 1) # [B, 2*C]
         feat_fusion = self.fc_norm(feat_fusion)
 
         # 回归
