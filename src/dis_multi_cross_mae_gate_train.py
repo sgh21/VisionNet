@@ -213,8 +213,8 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
         with torch.cuda.amp.autocast():  # 混合精度训练
             pred, rgb1_weight = model(rgb_img1, rgb_img2, touch_img1, touch_img2, args.mask_ratio)  # 模型输出
             delta_label = label2 - label1  # 计算标签的差值
-            lambda_values.extend(rgb1_weight.cpu().detach().numpy())
-            noise_levels.extend(noise_level.cpu().detach().numpy())
+            lambda_values.extend(rgb1_weight.cpu().numpy())
+            noise_levels.extend(noise_level.cpu().numpy())
             # 归一化标签
             delta_label = label_normalize(delta_label, weight=loss_norm)
             pred = label_normalize(pred, weight=loss_norm)
@@ -247,7 +247,7 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
             log_writer.add_scalar('train_loss', loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('lr', lr, epoch_1000x)
 
-        # 在epoch结束时计算相关系数并记录
+    # 在epoch结束时计算相关系数并记录
     if log_writer is not None:
         correlation = calculate_correlation(noise_levels, lambda_values)
         log_writer.add_scalar('noise_lambda/correlation', correlation, epoch)
