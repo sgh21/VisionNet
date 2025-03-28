@@ -237,13 +237,19 @@ class TestMultiCrossMAEGate(nn.Module):
 
 
         # !: 测试新的回归头的效果 证明回归头简单反而效果更好
-        self.regressor = nn.Sequential(
-            nn.Linear(embed_dim * 2, embed_dim),
-            nn.GELU(),# !: 使用GELU激活函数，进行测试
-            nn.Dropout(drop_rate),
-            nn.Linear(embed_dim, feature_dim)
+        self.regressor_rgb = nn.Sequential(
+            # nn.Linear(embed_dim * 2, embed_dim),
+            # nn.GELU(),# !: 使用GELU激活函数，进行测试
+            # nn.Dropout(drop_rate),
+            nn.Linear(embed_dim*2, feature_dim)
         )
         
+        self.regressor_touch = nn.Sequential(
+            # nn.Linear(embed_dim * 2, embed_dim),
+            # nn.GELU(),# !: 使用GELU激活函数，进行测试
+            # nn.Dropout(drop_rate),
+            nn.Linear(embed_dim*2, feature_dim)
+        )
         # 初始化新增网络层的参数
         self.initialize_weights()
 
@@ -256,12 +262,16 @@ class TestMultiCrossMAEGate(nn.Module):
         torch.nn.init.constant_(self.feat_norm.weight, 1.0)
 
         # 初始化regressor
-        for m in self.regressor.modules():
+        for m in self.regressor_rgb.modules():
             if isinstance(m, nn.Linear):
                 torch.nn.init.xavier_uniform_(m.weight)
                 if m.bias is not None:
                     torch.nn.init.constant_(m.bias, 0)
-
+        for m in self.regressor_touch.modules():
+            if isinstance(m, nn.Linear):
+                torch.nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    torch.nn.init.constant_(m.bias, 0)
     def forward_gate(self, rgb_latent, touch_latent):
         """
         融合两个模态的特征
@@ -322,12 +332,13 @@ class TestMultiCrossMAEGate(nn.Module):
         rgb_weight = gate[:, 0:1] # [B, 1]
         touch_weight = gate[:, 1:] # [B, 1]
         # 融合特征
-        fusion_feat = rgb_weight * rgb_feat + touch_weight * touch_feat # [B, 2*L]
-        fusion_feat = self.fc_norm(fusion_feat)
+        # fusion_feat = rgb_weight * rgb_feat + touch_weight * touch_feat # [B, 2*L]
+        # fusion_feat = self.fc_norm(fusion_feat)
 
         # 回归
-        pred = self.regressor(fusion_feat)
-
+        pred_rgb = self.regressor_rgb(rgb_feat)
+        pred_touch = self.regressor_rgb(touch_feat)
+        pred = rgb_weight * pred_rgb + touch_weight * pred_touch
         return pred, rgb_weight
 
 def create_multicrossmaegate_model(
