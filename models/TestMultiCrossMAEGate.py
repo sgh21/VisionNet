@@ -201,7 +201,6 @@ class TestMultiCrossMAEGate(nn.Module):
             num_heads=encoder_num_heads,
             mlp_ratio=mlp_ratio,
             norm_layer=norm_layer,
-            drop_rate=drop_rate,
             pretrained_path=rgb_pretrained_path,
             remove_class_token=remove_class_token
         )
@@ -215,11 +214,10 @@ class TestMultiCrossMAEGate(nn.Module):
             num_heads=encoder_num_heads,
             mlp_ratio=mlp_ratio,
             norm_layer=norm_layer,
-            drop_rate=drop_rate,
             pretrained_path=touch_pretrained_path,
             remove_class_token=remove_class_token,
         )
-        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
+        
         self.gate = nn.Sequential(
             nn.Linear(embed_dim *2, embed_dim//2),
             nn.GELU(),
@@ -235,7 +233,7 @@ class TestMultiCrossMAEGate(nn.Module):
             self.crossmodal_cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
         # 层归一化
         self.fc_norm = norm_layer(2*embed_dim)
-        self.feat_norm = norm_layer(embed_dim)
+        self.feat_norm = norm_layer(2*embed_dim)
 
 
         # !: 测试新的回归头的效果 证明回归头简单反而效果更好
@@ -276,9 +274,11 @@ class TestMultiCrossMAEGate(nn.Module):
             gate (Tensor): 门控向量 (B, 2)
         """
         # !: 对视觉和触觉模态的特征进行拼接
-        fusion_latent = torch.cat((rgb_latent, touch_latent), dim=1)
-        gate = self.gate(fusion_latent)
-        return gate
+        fusion_latent = torch.cat((rgb_latent.mean(dim=1), touch_latent.mean(dim=1)), dim=1) #(B,2*L)
+        
+        weight = self.gate(fusion_latent)
+      
+        return weight
     def forward_contrast(self, x1, x2, dtype='rgb'):
         """
         对比两个特征
@@ -319,7 +319,7 @@ class TestMultiCrossMAEGate(nn.Module):
         
         # 门控向量
         gate = self.forward_gate(rgb1_latent, touch1_latent)
-        rgb_weight = gate[:, 0:] # [B, 1]
+        rgb_weight = gate[:, 0:1] # [B, 1]
         touch_weight = gate[:, 1:] # [B, 1]
         # 融合特征
         fusion_feat = rgb_weight * rgb_feat + touch_weight * touch_feat # [B, 2*L]

@@ -178,6 +178,7 @@ def calculate_correlation(noise_levels, lambda_values):
         return 0.0
     noise_tensor = torch.tensor(noise_levels)
     lambda_tensor = torch.tensor(lambda_values)
+    lambda_tensor = lambda_tensor.squeeze()
     return torch.corrcoef(torch.stack([noise_tensor, lambda_tensor]))[0,1].item()
 
 def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.Optimizer, criterion, 
@@ -213,8 +214,8 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
         with torch.cuda.amp.autocast():  # 混合精度训练
             pred, rgb1_weight = model(rgb_img1, rgb_img2, touch_img1, touch_img2, args.mask_ratio)  # 模型输出
             delta_label = label2 - label1  # 计算标签的差值
-            lambda_values.extend(rgb1_weight.cpu().numpy())
-            noise_levels.extend(noise_level.cpu().numpy())
+            lambda_values.extend(rgb1_weight.cpu().detach().numpy())
+            noise_levels.extend(noise_level.cpu().detach().numpy())
             # 归一化标签
             delta_label = label_normalize(delta_label, weight=loss_norm)
             pred = label_normalize(pred, weight=loss_norm)
@@ -247,20 +248,77 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
             log_writer.add_scalar('train_loss', loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('lr', lr, epoch_1000x)
 
+    # 使用PIL创建散点图
     # 在epoch结束时计算相关系数并记录
     if log_writer is not None:
         correlation = calculate_correlation(noise_levels, lambda_values)
         log_writer.add_scalar('noise_lambda/correlation', correlation, epoch)
-        
-        # 添加散点图
-        fig = plt.figure(figsize=(10, 6))
-        plt.scatter(noise_levels, lambda_values, alpha=0.5)
-        plt.xlabel('Noise Level')
-        plt.ylabel('Lambda Value')
-        plt.title(f'Epoch {epoch}, Correlation: {correlation:.3f}')
-        log_writer.add_figure('noise_lambda/scatter_plot', fig, epoch)
-        plt.close()
-    metric_logger.synchronize_between_processes()  # 跨进程同步
+        try:
+            from PIL import Image, ImageDraw
+            import numpy as np
+            import io
+            
+            # 创建散点图
+            width, height = 800, 500
+            padding = 50
+            plot_width = width - 2 * padding
+            plot_height = height - 2 * padding
+            
+            # 创建白色背景
+            scatter_img = Image.new('RGB', (width, height), 'white')
+            draw = ImageDraw.Draw(scatter_img)
+            
+            # 绘制坐标轴
+            draw.line([(padding, height-padding), (width-padding, height-padding)], fill='black', width=2)  # x轴
+            draw.line([(padding, padding), (padding, height-padding)], fill='black', width=2)  # y轴
+            
+            # 标题和坐标轴标签
+            try:
+                from PIL import ImageFont
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
+            except:
+                font = ImageFont.load_default()
+                
+            draw.text((width//2-100, 15), f'Epoch {epoch}, Correlation: {correlation:.3f}', fill='black', font=font)
+            draw.text((width//2, height-30), 'Noise Level', fill='black', font=font)
+            draw.text((15, height//2-30), 'Lambda Value', fill='black', font=font)
+            
+            # 绘制散点
+            if noise_levels and lambda_values:
+                # 数据标准化
+                noise_min, noise_max = min(noise_levels), max(noise_levels)
+                lambda_min, lambda_max = min(lambda_values), max(lambda_values)
+                
+                # 添加小偏移量避免除零错误
+                noise_range = noise_max - noise_min + 1e-10
+                lambda_range = lambda_max - lambda_min + 1e-10
+                
+                # 绘制散点
+                for noise, lam in zip(noise_levels, lambda_values):
+                    # 将数据点映射到绘图区域
+                    x = padding + ((noise - noise_min) / noise_range) * plot_width
+                    y = height - padding - ((lam - lambda_min) / lambda_range) * plot_height
+                    
+                    # 绘制点
+                    point_radius = 4
+                    draw.ellipse((x-point_radius, y-point_radius, x+point_radius, y+point_radius), 
+                                fill='blue', outline='blue')
+            
+            # 将PIL图像转换为BytesIO以便TensorBoard使用
+            buf = io.BytesIO()
+            scatter_img.save(buf, format='PNG')
+            buf.seek(0)
+            
+            # 将PIL图像转换为Tensor以添加到TensorBoard
+            import torchvision.transforms as T
+            transform = T.ToTensor()
+            img_tensor = transform(scatter_img)
+            
+            # 添加到TensorBoard
+            log_writer.add_image('noise_lambda/scatter_plot', img_tensor, epoch)
+            
+        except Exception as e:
+            print(f"创建散点图时出错: {str(e)}")
 
     print("Averaged stats:", metric_logger)
 
@@ -276,6 +334,7 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
     total_y_mae = 0
     total_rz_mae = 0
 
+    all_weights = []
     with torch.no_grad():  # 在验证过程中不计算梯度
         for rgb_img1, rgb_img2, touch_img1, touch_img2, label1, label2, noise_level in metric_logger.log_every(data_loader, 20, header):
             
@@ -291,7 +350,8 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
             with torch.cuda.amp.autocast():  # 混合精度验证
                 pred, rgb1_weights = model(rgb_img1, rgb_img2, touch_img1, touch_img2, args.mask_ratio)
                 delta_label = label2 - label1
-                
+                # 收集权重值
+                all_weights.extend(rgb1_weights.cpu().detach().numpy().flatten())
                 # 归一化标签
                 delta_label_norm = label_normalize(delta_label, loss_norm)
                 pred_norm = label_normalize(pred, loss_norm)
@@ -337,7 +397,25 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
     metric_logger.update(mae_x=avg_x_mae)
     metric_logger.update(mae_y=avg_y_mae)
     metric_logger.update(mae_rz=avg_rz_mae)
-
+    
+     # 记录权重分布到tensorboard
+    if log_writer is not None and dist.get_rank() == 0:
+        # 添加权重直方图
+        log_writer.add_histogram('val/rgb1_weights', np.array(all_weights), epoch)
+        
+        # 计算权重统计量
+        weights_mean = np.mean(all_weights)
+        weights_std = np.std(all_weights)
+        weights_min = np.min(all_weights)
+        weights_max = np.max(all_weights)
+        
+        # 记录统计量
+        log_writer.add_scalar('val/rgb1_weights_mean', weights_mean, epoch)
+        log_writer.add_scalar('val/rgb1_weights_std', weights_std, epoch)
+        log_writer.add_scalar('val/rgb1_weights_min', weights_min, epoch)
+        log_writer.add_scalar('val/rgb1_weights_max', weights_max, epoch)
+        
+        print(f"RGB1 权重统计: 均值={weights_mean:.4f}, 标准差={weights_std:.4f}, 最小值={weights_min:.4f}, 最大值={weights_max:.4f}")
     # 同步并打印结果
     metric_logger.synchronize_between_processes()
     print('* Avg loss {:.3f}, MAE x {:.2f}mm, y {:.2f}mm, rz {:.2f}deg'
