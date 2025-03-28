@@ -226,7 +226,8 @@ class TestMultiCrossMAEGate(nn.Module):
         )
 
         # 交叉注意力模块
-        self.unimodal_cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
+        self.unimodal_cross_attention_rgb = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
+        self.unimodal_cross_attention_touch = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
         self.cross_attention = cross_attention
         if self.cross_attention:
             # 是否使用跨模态交叉注意力
@@ -306,15 +307,19 @@ class TestMultiCrossMAEGate(nn.Module):
         if dtype == 'rgb':
             latent1, mask1, ids_restore1, ids_keep1 = self.rgb_encoder(x1, mask_ratio=0.0)
             latent2, mask2, ids_restore2, ids_keep2 = self.rgb_encoder(x2, mask_ratio=0.0)
+            # !: 是否使用不同的跨模态交叉注意力
+            # (B, N, L) -> (B, L)
+            contrast_feat1 = self.unimodal_cross_attention_rgb(latent1, latent2).mean(dim=1)
+            contrast_feat2 = self.unimodal_cross_attention_rgb(latent2, latent1).mean(dim=1)
 
         else:
             latent1, mask1, ids_restore1, ids_keep1 = self.touch_encoder(x1, mask_ratio=0.0)
             latent2, mask2, ids_restore2, ids_keep2 = self.touch_encoder(x2, mask_ratio=0.0)
-        
-        # !: 是否使用不同的跨模态交叉注意力
-        # (B, N, L) -> (B, L)
-        contrast_feat1 = self.unimodal_cross_attention(latent1, latent2).mean(dim=1)
-        contrast_feat2 = self.unimodal_cross_attention(latent2, latent1).mean(dim=1)
+            # !: 是否使用不同的跨模态交叉注意力
+            # (B, N, L) -> (B, L)
+            contrast_feat1 = self.unimodal_cross_attention_touch(latent1, latent2).mean(dim=1)
+            contrast_feat2 = self.unimodal_cross_attention_touch(latent2, latent1).mean(dim=1)
+            
         
         contrast_feat = self.feat_norm(torch.cat([contrast_feat1, contrast_feat2], dim=1)) # [B, 2*L]
 
