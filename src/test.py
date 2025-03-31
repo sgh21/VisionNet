@@ -176,11 +176,14 @@ def create_transformation(rotation_angle=0, scale=1.0, tx=0, ty=0, cx=0, cy=0):
         Tensor: [1, 6] 变换矩阵参数
     """
     # 创建旋转矩阵
-    a = scale * np.cos(rotation_angle)
-    b = -scale * np.sin(rotation_angle)
-    c = scale * np.sin(rotation_angle)
-    d = scale * np.cos(rotation_angle)
-
+    # a = scale * np.cos(rotation_angle)
+    # b = -scale * np.sin(rotation_angle)
+    # c = scale * np.sin(rotation_angle)
+    # d = scale * np.cos(rotation_angle)
+    a = 0.32
+    b = 0.21
+    c = 0.05
+    d = 0.07
     
     # 创建变换参数
     return torch.tensor([[a, b, c, d, cx, cy, tx, ty]], dtype=torch.float32)

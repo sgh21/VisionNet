@@ -125,7 +125,7 @@ def create_transform_matrix(vector, intrinsic, img_size, scale=1.0):
         scale (float): 缩放因子，用于调整变换幅度
             
     Returns:
-        torch.Tensor: 形状为[B, 8]的变换矩阵参数 [a, b, c, d, cx, cy, tx, ty]
+        torch.Tensor: 形状为[B, 5]的变换矩阵参数 [theta, cx, cy, tx, ty]
     """
     B = vector.shape[0]
     device = vector.device
@@ -144,12 +144,6 @@ def create_transform_matrix(vector, intrinsic, img_size, scale=1.0):
     # 将角度转换为弧度
     theta_rad = theta_deg * (torch.pi / 180.0)
     
-    # 计算旋转矩阵参数
-    a = torch.cos(theta_rad) * scale  # 旋转矩阵元素
-    b = -torch.sin(theta_rad) * scale
-    c = torch.sin(theta_rad) * scale
-    d = torch.cos(theta_rad) * scale
-    
     # 计算旋转中心(默认为图像中心)
     cx = torch.zeros_like(tx_mm)  # 默认为0，即图像中心
     cy = torch.zeros_like(ty_mm)  # 默认为0，即图像中心
@@ -161,8 +155,8 @@ def create_transform_matrix(vector, intrinsic, img_size, scale=1.0):
     tx_norm = tx_mm / (fx * W/2) # 图像x方向的归一化平移量
     ty_norm = ty_mm / (fy * H/2) # 图像y方向的归一化平移量
     
-    # 构建完整的变换矩阵参数 [a, b, c, d, cx, cy, tx, ty]
-    transform_matrix = torch.stack([a, b, c, d, cx, cy, tx_norm, ty_norm], dim=1)
+    # 构建完整的变换矩阵参数 [theta, cx, cy, tx, ty]
+    transform_matrix = torch.stack([theta_rad, cx, cy, tx_norm, ty_norm], dim=1)
     
     return transform_matrix.to(device=device)
 
@@ -171,7 +165,7 @@ def create_pred_vector(T, intrinsic, img_size):
     从变换矩阵参数中提取物理坐标系的平移和旋转参数
     
     Args:
-        T (torch.Tensor): 形状为[B, 8]的变换矩阵参数 [a, b, c, d, cx, cy, tx, ty]
+        T (torch.Tensor): 形状为[B, 5]的变换矩阵参数 [theta, cx, cy, tx, ty]
         intrinsic (torch.Tensor): 形状为[B, 2]的张量，包含[fx, fy]
             - fx, fy: 内参矩阵的焦距参数，单位为mm/pixel
             
@@ -184,31 +178,18 @@ def create_pred_vector(T, intrinsic, img_size):
     device = T.device
     
     # 提取变换矩阵参数
-    a = T[:, 0]
-    b = T[:, 1]
-    c = T[:, 2]
-    d = T[:, 3]
-    tx_norm = T[:, 6]
-    ty_norm = T[:, 7]
+    theta_rad = T[:,0]
+    tx_norm = T[:, 3]
+    ty_norm = T[:, 4]
     
     # 提取内参
     fx , fy = intrinsic
     
     # 提取图片尺寸
     H , W = img_size
-    # 计算旋转角度
-    # 如果是标准旋转矩阵，应该有 a = d = cos(theta), b = -c = -sin(theta)
-    # 但可能存在噪声，因此我们取平均或使用更稳健的方法
-    
-    # 方法1: 使用arctan2来计算角度，更稳健
-    theta_rad = torch.atan2(c, a)
     
     # 转换为角度
     theta_deg = theta_rad * (180.0 / torch.pi)
-    
-    # 检查旋转矩阵的确定性，如果有缩放，可以考虑调整
-    det = a * d - b * c
-    scale = torch.sqrt(torch.abs(det))
     
     # 将归一化平移量转换回物理平移量(mm)
     tx_mm = tx_norm * fx * W/2
@@ -321,7 +302,7 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                 
                
                 loss = trans_diff_loss
-                pred = create_pred_vector(T, intrinsic=[-0.0206,-0.0207],img_size=[224, 224])
+                pred = create_pred_vector(T, intrinsic=[-0.0206*2.5,-0.0207*2.5],img_size=[224, 224])
                 mae_x, mae_y, mae_rz = calculate_dim_mae(pred, delta_label)
                 
                 total_x_mae += mae_x.item() * batch_size
@@ -333,7 +314,7 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
             # 每个epoch只可视化一个批次的图像
             if log_writer is not None and batch_idx == 0:
                 # 选择批次中的前min(8, batch_size)个样本进行可视化
-                n_vis = min(8, batch_size)
+                n_vis = min(3, batch_size)
                 
                 # 反归一化图像
                 img1_vis = denormalize_image(img1[:n_vis])
