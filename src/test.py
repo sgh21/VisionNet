@@ -8,62 +8,6 @@ from PIL import Image
 import torchvision.transforms as transforms
 from torch.nn import functional as F
 
-# def forward_transfer(x, T):
-#     """
-#     对输入进行旋转和平移变换，支持梯度回传
-    
-#     Args:
-#         x (Tensor): 输入数据，[B, C, H, W]
-#         T (Tensor): 变换矩阵，[B, 6] (a, b, c, d, tx, ty)
-#             其中[a, b; c, d]构成旋转矩阵R
-#             [tx, ty]构成平移向量t
-    
-#     Returns:
-#         Tensor: 变换后的图像，[B, C, H, W]
-#     """
-#     B, C, H, W = x.shape
-#     device = x.device
-    
-#     # 创建标准化网格坐标 [-1,1] x [-1,1]
-#     grid_y, grid_x = torch.meshgrid(
-#         torch.linspace(-1, 1, H, device=device),
-#         torch.linspace(-1, 1, W, device=device),
-#         indexing='ij'
-#     )
-    
-#     # 将网格转换为 [H*W, 2] 形状的坐标
-#     grid = torch.stack([grid_x, grid_y], dim=-1).view(1, H, W, 2).repeat(B, 1, 1, 1)
-    
-#     # 为每个批次应用变换
-#     for b in range(B):
-#         # 提取变换参数
-#         a, b_, c, d = T[b, 0:4]  # 旋转矩阵参数
-#         tx, ty = T[b, 4:6]      # 平移向量参数
-        
-#         # 转换为图像坐标系
-#         x_out = grid_x * W / 2 + W / 2
-#         y_out = grid_y * H / 2 + H / 2
-        
-#         # 应用变换
-#         x_in = a * x_out + b_ * y_out + tx
-#         y_in = c * x_out + d * y_out + ty
-        
-#         # 转回标准化坐标 [-1,1]
-#         x_in_norm = (x_in - W / 2) / (W / 2)
-#         y_in_norm = (y_in - H / 2) / (H / 2)
-        
-#         # 更新当前批次的网格
-#         grid[b, :, :, 0] = x_in_norm
-#         grid[b, :, :, 1] = y_in_norm
-    
-#     # 使用grid_sample实现双线性插值，支持梯度回传
-#     return F.grid_sample(
-#         x, 
-#         grid, 
-#         mode='bilinear',      # 双线性插值 
-#         padding_mode='zeros', # 边界填充模式
-#         align_corners=True    # 保持对角点对齐
-#     )
 def forward_transfer(x, T):
         """
         对输入进行旋转和平移变换，使零件与世界坐标系中的零件重叠
@@ -125,12 +69,9 @@ def forward_transfer(x, T):
         y_unrotated = inv_c * x_centered + inv_d * y_centered
         
         # 3. 加回旋转中心
-        x_after_rot = x_unrotated + cx
-        y_after_rot = y_unrotated + cy
+        x_in = x_unrotated + cx
+        y_in = y_unrotated + cy
         
-        # 4. 应用平移的逆变换 (由于是逆向映射，所以是减去平移量)
-        x_in = x_after_rot
-        y_in = y_after_rot
         
         # 组合成采样网格
         grid = torch.stack([x_in, y_in], dim=-1)  # [B, H, W, 2]
@@ -143,6 +84,85 @@ def forward_transfer(x, T):
             padding_mode='zeros', 
             align_corners=True    
         )
+# def forward_transfer(x, T):
+#         """
+#         对输入进行旋转和平移变换，使零件与世界坐标系中的零件重叠
+#         变换顺序：先平移后旋转
+        
+#         Args:
+#             x (Tensor): 输入数据，[B, C, H, W]
+#             T (Tensor): 变换矩阵，[B, 8] (a, b, c, d, cx, cy, tx, ty)
+#                 其中[a, b; c, d]构成旋转矩阵R
+#                 [cx, cy]为旋转中心坐标(归一化到[-1,1])
+#                 [tx, ty]构成平移向量t（归一化到[-1,1]）
+#         Returns:
+#             Tensor: 变换后的图像，[B, C, H, W]
+#         """
+#         B, C, H, W = x.shape
+#         device = x.device
+        
+#         # 创建归一化网格坐标并展开到批次维度
+#         grid_y, grid_x = torch.meshgrid(
+#             torch.linspace(-1, 1, H, device=device),
+#             torch.linspace(-1, 1, W, device=device),
+#             indexing='ij'
+#         )
+        
+#         # 计算变换的逆矩阵 (用于逆向映射)
+#         # 提取变换参数
+#         a = T[:, 0].view(B, 1, 1)  # [B, 1, 1]
+#         b_ = T[:, 1].view(B, 1, 1)
+#         c = T[:, 2].view(B, 1, 1)
+#         d = T[:, 3].view(B, 1, 1)
+#         cx = T[:, 4].view(B, 1, 1)  # 旋转中心(归一化坐标)
+#         cy = T[:, 5].view(B, 1, 1)
+#         tx = T[:, 6].view(B, 1, 1)  # 平移量(归一化坐标)
+#         ty = T[:, 7].view(B, 1, 1)
+        
+#         # 计算行列式和逆矩阵 (更稳定的方式)
+#         det = a * d - b_ * c
+#         eps = 1e-6
+#         safe_det = torch.where(torch.abs(det) < eps, 
+#                            torch.ones_like(det) * eps * torch.sign(det), 
+#                            det)
+        
+#         inv_a = d / safe_det
+#         inv_b = -b_ / safe_det
+#         inv_c = -c / safe_det
+#         inv_d = a / safe_det
+        
+#         # 扩展网格坐标到批次维度
+#         grid_x = grid_x.unsqueeze(0).expand(B, H, W)  # [B, H, W]
+#         grid_y = grid_y.unsqueeze(0).expand(B, H, W)  # [B, H, W]
+        
+#         # 逆向映射坐标计算（从输出找输入）:
+#         # 1. 将坐标相对于旋转中心
+#         x_centered = grid_x - cx - tx
+#         y_centered = grid_y - cy - ty
+        
+#         # 2. 应用旋转的逆变换
+#         x_unrotated = inv_a * x_centered + inv_b * y_centered
+#         y_unrotated = inv_c * x_centered + inv_d * y_centered
+        
+#         # 3. 加回旋转中心
+#         x_after_rot = x_unrotated + cx
+#         y_after_rot = y_unrotated + cy
+        
+#         # 4. 应用平移的逆变换 (由于是逆向映射，所以是减去平移量)
+#         x_in = x_after_rot
+#         y_in = y_after_rot
+        
+#         # 组合成采样网格
+#         grid = torch.stack([x_in, y_in], dim=-1)  # [B, H, W, 2]
+        
+#         # 使用grid_sample实现双线性插值
+#         return torch.nn.functional.grid_sample(
+#             x, 
+#             grid, 
+#             mode='bilinear',      
+#             padding_mode='zeros', 
+#             align_corners=True    
+#         )
 def create_transformation(rotation_angle=0, scale=1.0, tx=0, ty=0, cx=0, cy=0):
     """
     创建变换矩阵

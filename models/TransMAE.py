@@ -214,7 +214,8 @@ class TransMAE(nn.Module):
 
         # !: 测试新的回归头的效果
         self.regressor = nn.Sequential(
-            nn.Linear(embed_dim*2, feature_dim)
+            nn.Linear(embed_dim*2, feature_dim),
+            nn.Tanh()
         )
 
         self.initialize_weights() 
