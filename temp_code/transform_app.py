@@ -391,8 +391,8 @@ class TransformVisualizer(QMainWindow):
         # 先平移后旋转的逆变换 = 先逆旋转后逆平移
         
         # 1. 将坐标相对于旋转中心
-        x_centered = grid_x - cx
-        y_centered = grid_y - cy
+        x_centered = grid_x - cx - tx
+        y_centered = grid_y - cy - ty
         
         # 2. 应用旋转的逆变换
         x_unrotated = inv_a * x_centered + inv_b * y_centered
@@ -403,8 +403,8 @@ class TransformVisualizer(QMainWindow):
         y_after_rot = y_unrotated + cy
         
         # 4. 应用平移的逆变换
-        x_in = x_after_rot - tx
-        y_in = y_after_rot - ty
+        x_in = x_after_rot 
+        y_in = y_after_rot 
         
         # 组合成采样网格
         grid = torch.stack([x_in, y_in], dim=-1)  # [B, H, W, 2]

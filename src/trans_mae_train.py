@@ -266,7 +266,7 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
-
+# TODO: 使用label给出初始的估计范围，不然训练很难开展，可以使用权重调整策略，并且需要测试相机内参
 def validate(model, data_loader, criterion, device, epoch, log_writer=None, args=None):
     model.eval()  # 设置模型为评估模式
     metric_logger = misc.MetricLogger(delimiter="  ")  # 用于记录和打印指标

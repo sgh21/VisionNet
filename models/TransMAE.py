@@ -245,7 +245,20 @@ class TransMAE(nn.Module):
                 if m.bias is not None:
                     torch.nn.init.constant_(m.bias, 0)
 
-    def forward_pred(self, x1, x2, mask_ratio=0.75):
+    def forward_pred(self, x1, x2, mask_ratio=0.75, scale_factors=None):
+        """
+        预测变换参数
+        
+        Args:
+            x1: 第一张图像 [B, C, H, W]
+            x2: 第二张图像 [B, C, H, W]
+            mask_ratio: MAE掩码比例
+            scale_factors: 参数缩放系数 (None或tensor[5])，控制预测参数的范围
+                           theta, cx, cy, tx, ty的缩放系数
+                           
+        Returns:
+            pred: 预测的变换参数 [B, 5] (theta, cx, cy, tx, ty)
+        """
         # Encoder features
         feat1, _mask1, _id_restore1, _ids_keep1 = self.encoder(x1, mask_ratio)  # [B, N, C] 
         keep_mask = {
@@ -272,8 +285,28 @@ class TransMAE(nn.Module):
         feat_fusion = torch.cat([feat1_fusion, feat2_fusion], dim=1)  # [B, 2C]
         feat_fusion = self.feat_norm(feat_fusion)  # [B, 2C] # !: 测试归一化的效果
 
-        pred = self.regressor(feat_fusion)  # [B, 8] 
-        pred[:, 0] = pred[:, 0]*torch.pi
+        # 原始预测
+        pred = self.regressor(feat_fusion)  # [B, 5]
+        
+        # 设置默认缩放系数
+        if scale_factors is None:
+            # 默认缩放系数: [theta, cx, cy, tx, ty]
+            # theta的默认范围为[-π, π]
+            # 其他参数的默认范围为[-1, 1]
+            scale_factors = torch.tensor([10/180*torch.pi, 0.05, 0.05, 0.7, 0.52], 
+                                        device=pred.device)
+        else:
+            # 确保scale_factors是tensor并且在正确的设备上
+            if not isinstance(scale_factors, torch.Tensor):
+                scale_factors = torch.tensor(scale_factors, device=pred.device)
+            elif scale_factors.device != pred.device:
+                scale_factors = scale_factors.to(pred.device)
+        
+        # 应用缩放系数
+        # 扩展维度以适应批次大小
+        scale_factors = scale_factors.view(1, -1)
+        pred = pred * scale_factors
+        
         return pred
     def forward_transfer(self, x, params):
         """

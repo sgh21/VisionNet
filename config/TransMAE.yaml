@@ -16,7 +16,7 @@ encoder_num_heads: 12
 cross_num_heads: 12 # 头数变大，模型参数变多，训练时间变长，但模型性能基本不变
 mlp_ratio: 4
 mask_ratio: 0.0 # 在下游任务时，默认不使用mask
-feature_dim: 8
+feature_dim: 5
 qkv_bias: true # 带bias会些许提高模型性能
 cross_attention: false
 add_noise: false
