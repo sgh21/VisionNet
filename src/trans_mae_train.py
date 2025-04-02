@@ -136,13 +136,13 @@ def create_transform_matrix(vector, intrinsic, img_size, scale=1.0):
     theta_deg = vector[:, 2]  # 旋转角度(deg)
     
     # 提取内参
-    fx , fy = intrinsic
+    fx , fy, flag = intrinsic
     
     # 提取图片尺寸
     H, W = img_size
 
     # 将角度转换为弧度
-    theta_rad = theta_deg * (torch.pi / 180.0)
+    theta_rad = theta_deg * (torch.pi / 180.0) * flag
     
     # 计算旋转中心(默认为图像中心)
     cx = torch.zeros_like(tx_mm)  # 默认为0，即图像中心
@@ -166,8 +166,9 @@ def create_pred_vector(T, intrinsic, img_size):
     
     Args:
         T (torch.Tensor): 形状为[B, 5]的变换矩阵参数 [theta, cx, cy, tx, ty]
-        intrinsic (torch.Tensor): 形状为[B, 2]的张量，包含[fx, fy]
+        intrinsic (torch.Tensor): 形状为[B, 2]的张量，包含[fx, fy, flag]
             - fx, fy: 内参矩阵的焦距参数，单位为mm/pixel
+            - flag: 旋转是否反向
             
     Returns:
         torch.Tensor: 形状为[B, 3]的张量，包含[tx, ty, theta]
@@ -183,13 +184,13 @@ def create_pred_vector(T, intrinsic, img_size):
     ty_norm = T[:, 4]
     
     # 提取内参
-    fx , fy = intrinsic
+    fx , fy, flag = intrinsic
     
     # 提取图片尺寸
     H , W = img_size
     
     # 转换为角度
-    theta_deg = theta_rad * (180.0 / torch.pi)
+    theta_deg = theta_rad * (180.0 / torch.pi) * flag
     
     # 将归一化平移量转换回物理平移量(mm)
     tx_mm = tx_norm * fx * W/2
@@ -302,7 +303,7 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                 
                
                 loss = trans_diff_loss
-                pred = create_pred_vector(T, intrinsic=[-0.0206*2.5,-0.0207*2.5],img_size=[224, 224])
+                pred = create_pred_vector(T, intrinsic=[-0.0206*2.5,-0.0207*2.5, -1.0],img_size=[224, 224])
                 mae_x, mae_y, mae_rz = calculate_dim_mae(pred, delta_label)
                 
                 total_x_mae += mae_x.item() * batch_size
