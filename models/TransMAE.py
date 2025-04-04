@@ -183,7 +183,7 @@ class TransMAE(nn.Module):
         mlp_ratio=4.,
         remove_class_token=True,
         norm_layer=partial(nn.LayerNorm, eps=1e-6),
-        feature_dim=5,
+        feature_dim=3,
         drop_rate=0.1,
         qkv_bias=False,
         pretrained_path=None,
@@ -293,7 +293,7 @@ class TransMAE(nn.Module):
             # 默认缩放系数: [theta, cx, cy, tx, ty]
             # theta的默认范围为[-π, π]
             # 其他参数的默认范围为[-1, 1]
-            scale_factors = torch.tensor([10/180*torch.pi, 0.05, 0.05, 0.7, 0.52], 
+            scale_factors = torch.tensor([7.5/180*torch.pi, 0.7, 0.52], 
                                         device=pred.device)
         else:
             # 确保scale_factors是tensor并且在正确的设备上
@@ -308,17 +308,16 @@ class TransMAE(nn.Module):
         pred = pred * scale_factors
         
         return pred
-    def forward_transfer(self, x, params):
+    def forward_transfer(self, x, params, CXCY=None):
         """
         使用5参数[theta,cx,cy,tx,ty]应用仿射变换到输入图像
         
         Args:
             x (Tensor): 输入数据，[B, C, H, W]
-            params (Tensor): 变换参数，[B, 5] (theta, cx, cy, tx, ty)
+            params (Tensor): 变换参数，[B, 3] (theta, tx, ty)
                 其中theta是旋转角度(-π, π)
-                [cx, cy]为旋转中心坐标(-1, 1)
                 [tx, ty]构成平移向量(-1, 1)
-                
+            CXCY:[cx, cy]为旋转中心坐标(-1, 1)
         Returns:
             Tensor: 变换后的图像，[B, C, H, W]
         """
@@ -327,11 +326,17 @@ class TransMAE(nn.Module):
         
         # 提取参数
         theta = params[:, 0]  # 旋转角度，(-π, π)范围
-        cx = params[:, 1]  # 旋转中心x，(-1, 1)范围
-        cy = params[:, 2]  # 旋转中心y，(-1, 1)范围
-        tx = params[:, 3]  # x方向平移，(-1, 1)范围
-        ty = params[:, 4]  # y方向平移，(-1, 1)范围
-        
+        tx = params[:, 1]  # x方向平移，(-1, 1)范围
+        ty = params[:, 2]  # y方向平移，(-1, 1)范围
+        if CXCY is not None:
+            # 转化为tensor
+            cx = torch.full((B, 1, 1), CXCY[0], device=device)
+            cy = torch.full((B, 1, 1), CXCY[1], device=device)
+        else:
+            # 计算旋转中心
+            cx = torch.zeros(B, 1, 1, device=device)
+            cy = torch.zeros(B, 1, 1, device=device)
+
         # 构建旋转矩阵
         cos_theta = torch.cos(theta)
         sin_theta = torch.sin(theta)
@@ -371,8 +376,6 @@ class TransMAE(nn.Module):
         inv_b = inv_b.view(B, 1, 1)
         inv_c = inv_c.view(B, 1, 1)
         inv_d = inv_d.view(B, 1, 1)
-        cx = cx.view(B, 1, 1)
-        cy = cy.view(B, 1, 1)
         tx = tx.view(B, 1, 1)
         ty = ty.view(B, 1, 1)
         
@@ -451,11 +454,11 @@ class TransMAE(nn.Module):
         
         return loss
     
-    def forward(self, x1, x2, mask_ratio=0.75, sigma=0.5):
-        T = self.forward_pred(x1, x2, mask_ratio)
-        x2_trans = self.forward_transfer(x2, T)
+    def forward(self, x1, x2, mask_ratio=0.75, sigma=0.5, CXCY=None):
+        pred = self.forward_pred(x1, x2, mask_ratio)
+        x2_trans = self.forward_transfer(x2, pred, CXCY=CXCY)
         trans_diff_loss = self.forward_loss(x1, x2_trans, sigma=sigma)
-        return T, trans_diff_loss, x2_trans   
+        return pred, trans_diff_loss, x2_trans
 
 
 def create_transmae_model(
@@ -469,7 +472,7 @@ def create_transmae_model(
     mlp_ratio=4.,
     remove_class_token=True,
     norm_layer=partial(nn.LayerNorm, eps=1e-6),
-    feature_dim=5,
+    feature_dim=3,
     drop_rate=0.1,
     qkv_bias=False,
     pretrained_path=None,

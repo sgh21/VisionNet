@@ -17,6 +17,8 @@ ROBOT_INIT_POSE = [-106,-548,250,-180,0,90]
 # 相机内参 ry = focal_length / pixel_height
 # INTRINSIC = [-0.024175,-0.024225]
 INTRINSIC = [-0.0206,-0.0207]
+CXCY = [-0.0102543, -0.0334525]  # 相机坐标系下的中心点坐标 560
+# CXCY = [-0.0090657, -0.0335761]  # 相机坐标系下的中心点坐标 672
 # 连接器型号枚举
 SERIALS = ['4024P','4030P','4034P','4040P']
 # HSV颜色空间的下限和上限
@@ -34,6 +36,7 @@ PARAMS = {
   'data_dir': DATA_DIR,
   'dataset_dir': DATASET_DIR,
   'intrinsic': INTRINSIC,
+  'cxcy': CXCY,
   'serials' : SERIALS,
   'hsv_lower_bound': HSV_LOWER_BOUND,
   'hsv_upper_bound': HSV_UPPER_BOUND

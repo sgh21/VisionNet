@@ -67,6 +67,16 @@ def get_args_parser():
     parser.add_argument('--qkv_bias', action='store_true')
     parser.add_argument('--mask_ratio', default=0.75, type=float,
                         help='Masking ratio (percentage of removed patches).')
+    # 添加一个固定长度为2的列表参数
+    parser.add_argument('--CXCY', type=float, nargs=2, default=[-0.0102543, -0.0334525], 
+                    help='旋转中心坐标 [cx, cy]，范围(-1,1)')
+    # 添加 lambda 相关参数
+    parser.add_argument('--lambda_start', type=float, default=0.1,
+                        help='lambda 权重的初始值')
+    parser.add_argument('--lambda_end', type=float, default=0.5,
+                        help='lambda 权重的最终值')
+    parser.add_argument('--lambda_warmup_epochs', type=int, default=40,
+                    help='lambda 权重从初始值增长到最终值所需的 epoch 数')
     
     # Optimizer parameters
     parser.add_argument('--weight_decay', type=float, default=0.05,
@@ -111,6 +121,24 @@ def label_denormalize(label, weight=[10, 5, 20]):
     weight = torch.tensor(weight).to(label.device)
     label = label / weight
     return label
+def get_current_lambda(epoch, args):
+    """
+    计算当前 epoch 对应的 lambda 值
+    
+    Args:
+        epoch (int): 当前 epoch
+        args: 参数配置
+        
+    Returns:
+        float: 当前的 lambda 值
+    """
+    if epoch >= args.lambda_warmup_epochs:
+        return args.lambda_end
+    
+    # 线性增长
+    progress = epoch / args.lambda_warmup_epochs
+    current_lambda = args.lambda_start + progress * (args.lambda_end - args.lambda_start)
+    return current_lambda
 
 def create_transform_matrix(vector, intrinsic, img_size, scale=1.0):
     """
@@ -125,7 +153,7 @@ def create_transform_matrix(vector, intrinsic, img_size, scale=1.0):
         scale (float): 缩放因子，用于调整变换幅度
             
     Returns:
-        torch.Tensor: 形状为[B, 5]的变换矩阵参数 [theta, cx, cy, tx, ty]
+        torch.Tensor: 形状为[B, 3]的变换矩阵参数 [theta, tx, ty]
     """
     B = vector.shape[0]
     device = vector.device
@@ -145,8 +173,8 @@ def create_transform_matrix(vector, intrinsic, img_size, scale=1.0):
     theta_rad = theta_deg * (torch.pi / 180.0) * flag
     
     # 计算旋转中心(默认为图像中心)
-    cx = torch.zeros_like(tx_mm)  # 默认为0，即图像中心
-    cy = torch.zeros_like(ty_mm)  # 默认为0，即图像中心
+    # cx = torch.zeros_like(tx_mm)  # 默认为0，即图像中心
+    # cy = torch.zeros_like(ty_mm)  # 默认为0，即图像中心
     
     # 将物理平移量(mm)转换为归一化图像坐标
     # 归一化坐标范围为[-1, 1]，对应实际像素坐标[-W/2, W/2]和[-H/2, H/2]
@@ -155,8 +183,8 @@ def create_transform_matrix(vector, intrinsic, img_size, scale=1.0):
     tx_norm = tx_mm / (fx * W/2) # 图像x方向的归一化平移量
     ty_norm = ty_mm / (fy * H/2) # 图像y方向的归一化平移量
     
-    # 构建完整的变换矩阵参数 [theta, cx, cy, tx, ty]
-    transform_matrix = torch.stack([theta_rad, cx, cy, tx_norm, ty_norm], dim=1)
+    # 构建完整的变换矩阵参数 [theta, tx, ty]
+    transform_matrix = torch.stack([theta_rad, tx_norm, ty_norm], dim=1)
     
     return transform_matrix.to(device=device)
 
@@ -165,7 +193,7 @@ def create_pred_vector(T, intrinsic, img_size):
     从变换矩阵参数中提取物理坐标系的平移和旋转参数
     
     Args:
-        T (torch.Tensor): 形状为[B, 5]的变换矩阵参数 [theta, cx, cy, tx, ty]
+        T (torch.Tensor): 形状为[B, 3]的变换矩阵参数 [theta, tx, ty]
         intrinsic (torch.Tensor): 形状为[B, 2]的张量，包含[fx, fy, flag]
             - fx, fy: 内参矩阵的焦距参数，单位为mm/pixel
             - flag: 旋转是否反向
@@ -180,8 +208,8 @@ def create_pred_vector(T, intrinsic, img_size):
     
     # 提取变换矩阵参数
     theta_rad = T[:,0]
-    tx_norm = T[:, 3]
-    ty_norm = T[:, 4]
+    tx_norm = T[:, 1]
+    ty_norm = T[:, 2]
     
     # 提取内参
     fx , fy, flag = intrinsic
@@ -233,9 +261,17 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
         label2 = label2.to(device, non_blocking=True)
 
         with torch.cuda.amp.autocast():  # 混合精度训练
-            T, trans_diff_loss, img2_trans = model(img1, img2, args.mask_ratio, sigma = args.sigma)  # 模型输出
-            
-            loss = trans_diff_loss
+            pred, trans_diff_loss, img2_trans = model(img1, img2, args.mask_ratio, sigma = args.sigma, CXCY=args.CXCY)  # 模型输出
+            #*:pred的shape是[B, 3],[theta, tx, ty](theta是弧度,tx,ty是归一化坐标)
+            # TODO:使用label给出初始的估计范围，不然训练很难开展，可以使用权重调整策略，并且需要测试相机内参
+            delta_label = label2 - label1  # 计算标签的差值 （B,3）
+            pred_vector = create_pred_vector(pred, intrinsic=[-0.0206*2.5,-0.0207*2.5, 1.0],img_size=[224, 224])  # 将预测的变换矩阵参数转换为物理坐标系的平移和旋转参数
+            delta_label = label_normalize(delta_label, weight=loss_norm)  # 对标签进行归一化
+            pred_vector = label_normalize(pred_vector, weight=loss_norm)
+            pred_loss = criterion(pred_vector, delta_label)  # 计算损失
+            # 计算总损失
+            current_lambda = get_current_lambda(epoch, args)
+            loss = (1-current_lambda)*pred_loss + current_lambda*trans_diff_loss
 
         loss_value = loss.item()
 
@@ -260,6 +296,7 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
         loss_value_reduce = misc.all_reduce_mean(loss_value)  # 计算全局损失
         if log_writer is not None and (data_iter_step + 1) % accum_iter == 0:
             epoch_1000x = int((data_iter_step / len(data_loader) + epoch) * 1000)
+            log_writer.add_scalar('train/lambda', current_lambda, epoch_1000x)
             log_writer.add_scalar('train_loss', loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('lr', lr, epoch_1000x)
 
@@ -298,24 +335,29 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
             batch_size = img1.size(0)
             
             with torch.cuda.amp.autocast():  # 混合精度验证
-                T, trans_diff_loss, img2_trans = model(img1, img2, args.mask_ratio, sigma = args.sigma)
+                pred, trans_diff_loss, img2_trans = model(img1, img2, args.mask_ratio, sigma = args.sigma, CXCY=args.CXCY)  # 模型输出
                 delta_label = label2 - label1
                 
-               
-                loss = trans_diff_loss
-                pred = create_pred_vector(T, intrinsic=[-0.0206*2.5,-0.0207*2.5, -1.0],img_size=[224, 224])
-                mae_x, mae_y, mae_rz = calculate_dim_mae(pred, delta_label)
+
+                pred_vector = create_pred_vector(pred, intrinsic=[-0.0206*2.5,-0.0207*2.5, 1.0],img_size=[224, 224])
+                mae_x, mae_y, mae_rz = calculate_dim_mae(pred_vector, delta_label)
                 
                 total_x_mae += mae_x.item() * batch_size
                 total_y_mae += mae_y.item() * batch_size
                 total_rz_mae += mae_rz.item() * batch_size
+
+                delta_label = label_normalize(delta_label, weight=loss_norm)  # 对标签进行归一化
+                pred_vector = label_normalize(pred_vector, weight=loss_norm)
+                pred_loss = criterion(pred_vector, delta_label)  # 计算损失
+                current_lambda = get_current_lambda(epoch, args)
+                loss = (1-current_lambda)*pred_loss + current_lambda*trans_diff_loss
                 total_loss += loss.item() * batch_size
 
             metric_logger.update(loss=loss.item())  # 更新损失
             # 每个epoch只可视化一个批次的图像
             if log_writer is not None and batch_idx == 0:
                 # 选择批次中的前min(8, batch_size)个样本进行可视化
-                n_vis = min(3, batch_size)
+                n_vis = min(4, batch_size)
                 
                 # 反归一化图像
                 img1_vis = denormalize_image(img1[:n_vis])
