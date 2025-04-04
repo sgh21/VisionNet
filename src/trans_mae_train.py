@@ -77,6 +77,7 @@ def get_args_parser():
                         help='lambda 权重的最终值')
     parser.add_argument('--lambda_warmup_epochs', type=int, default=40,
                     help='lambda 权重从初始值增长到最终值所需的 epoch 数')
+    parser.add_argument('--high_res_size', default=560, type=int)
     
     # Optimizer parameters
     parser.add_argument('--weight_decay', type=float, default=0.05,
@@ -250,22 +251,31 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
     if log_writer is not None:
         print('log_dir: {}'.format(log_writer.log_dir))
 
-    for data_iter_step, (img1, img2, label1, label2) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    for data_iter_step, (img1, img2, high_res_img1, high_res_img2, label1, label2) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         # 每累积一定步数调整学习率
         if data_iter_step % accum_iter == 0:
             lr_sched.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, args)
 
         img1 = img1.to(device, non_blocking=True)
         img2 = img2.to(device, non_blocking=True)
+        high_res_img1 = high_res_img1.to(device, non_blocking=True)
+        high_res_img2 = high_res_img2.to(device, non_blocking=True)
         label1 = label1.to(device, non_blocking=True)
         label2 = label2.to(device, non_blocking=True)
 
         with torch.cuda.amp.autocast():  # 混合精度训练
-            pred, trans_diff_loss, img2_trans = model(img1, img2, args.mask_ratio, sigma = args.sigma, CXCY=args.CXCY)  # 模型输出
-            #*:pred的shape是[B, 3],[theta, tx, ty](theta是弧度,tx,ty是归一化坐标)
-            # TODO:使用label给出初始的估计范围，不然训练很难开展，可以使用权重调整策略，并且需要测试相机内参
+            pred, trans_diff_loss, img2_trans = model(
+                img1, img2, 
+                high_res_x1=high_res_img1, 
+                high_res_x2=high_res_img2,
+                mask_ratio=args.mask_ratio, 
+                sigma=args.sigma, 
+                CXCY=args.CXCY
+            )
+
+            
             delta_label = label2 - label1  # 计算标签的差值 （B,3）
-            pred_vector = create_pred_vector(pred, intrinsic=[0.0206*2.5,0.0207*2.5, -1.0],img_size=[224, 224])  # 将预测的变换矩阵参数转换为物理坐标系的平移和旋转参数
+            pred_vector = create_pred_vector(pred, intrinsic=[0.0206,0.0207, -1.0],img_size=[560, 560])  # 将预测的变换矩阵参数转换为物理坐标系的平移和旋转参数
             delta_label = label_normalize(delta_label, weight=loss_norm)  # 对标签进行归一化
             pred_vector = label_normalize(pred_vector, weight=loss_norm)
             pred_loss = criterion(pred_vector, delta_label)  # 计算损失
@@ -326,20 +336,29 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
         return img
     
     with torch.no_grad():  # 在验证过程中不计算梯度
-        for batch_idx, (img1, img2, label1, label2) in enumerate(metric_logger.log_every(data_loader, 20, header)):
+        for batch_idx, (img1, img2, high_res_img1, high_res_img2, label1, label2) in enumerate(metric_logger.log_every(data_loader, 20, header)):
             img1 = img1.to(device, non_blocking=True)
             img2 = img2.to(device, non_blocking=True)
+            high_res_img1 = high_res_img1.to(device, non_blocking=True)
+            high_res_img2 = high_res_img2.to(device, non_blocking=True)
             label1 = label1.to(device, non_blocking=True)
             label2 = label2.to(device, non_blocking=True)
 
             batch_size = img1.size(0)
             
             with torch.cuda.amp.autocast():  # 混合精度验证
-                pred, trans_diff_loss, img2_trans = model(img1, img2, args.mask_ratio, sigma = args.sigma, CXCY=args.CXCY)  # 模型输出
+                pred, trans_diff_loss, img2_trans = model(
+                    img1, img2, 
+                    high_res_x1=high_res_img1, 
+                    high_res_x2=high_res_img2,
+                    mask_ratio=args.mask_ratio, 
+                    sigma=args.sigma, 
+                    CXCY=args.CXCY
+                )
                 delta_label = label2 - label1
                 
 
-                pred_vector = create_pred_vector(pred, intrinsic=[0.0206*2.5,0.0207*2.5, -1.0],img_size=[224, 224])
+                pred_vector = create_pred_vector(pred, intrinsic=[0.0206,0.0207, -1.0],img_size=[560, 560])
                 mae_x, mae_y, mae_rz = calculate_dim_mae(pred_vector, delta_label)
                 
                 total_x_mae += mae_x.item() * batch_size
@@ -424,7 +443,6 @@ def main(args):
     # 构建数据增强
     transform_train = transforms.Compose([
         transforms.Resize((args.input_size, args.input_size)),
-        # transforms.RandomResizedCrop(args.input_size, scale=(0.2, 1.0), interpolation=3),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])

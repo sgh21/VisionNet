@@ -5,6 +5,7 @@ import torch
 from torch.utils.data import Dataset
 import random
 from utils.VisionUtils import add_radial_noise
+import torchvision.transforms as transforms
 
 class TransMAEDataset(Dataset):
     def __init__(self, config, is_train=True, transform=None, is_eval = False, use_fix_template = False):
@@ -14,7 +15,14 @@ class TransMAEDataset(Dataset):
         self.img_dir = os.path.join(root, 'images')
         self.label_dir = os.path.join(root, 'labels')
         self.sample_ratio = config.pair_downsample
+        self.high_res_size = config.high_res_size
         
+        # 构建高分辨率转换
+        self.high_res_transform = transforms.Compose([
+            transforms.Resize((self.high_res_size, self.high_res_size)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
         # 按类别组织图片
         self.class_to_imgs = {}
         for img_file in os.listdir(self.img_dir):
@@ -70,6 +78,10 @@ class TransMAEDataset(Dataset):
         img1 = Image.open(os.path.join(self.img_dir, img1_name)).convert('RGB')
         img2 = Image.open(os.path.join(self.img_dir, img2_name)).convert('RGB')
         
+        # 保存高分辨率版本
+        high_res_img1 = self.high_res_transform(img1)
+        high_res_img2 = self.high_res_transform(img2)
+
         if self.transform:
             img1 = self.transform(img1)
             img2 = self.transform(img2)
@@ -78,9 +90,9 @@ class TransMAEDataset(Dataset):
         label1 = self._load_label(os.path.join(self.label_dir, self._remove_prefix(img1_name).replace('.png', '.txt')))
         label2 = self._load_label(os.path.join(self.label_dir, self._remove_prefix(img2_name).replace('.png', '.txt')))
         if self.is_eval:
-            return img1, img2, label1, label2, img1_name, img2_name
+            return img1, img2, high_res_img1, high_res_img2, label1, label2, img1_name, img2_name
         
-        return img1, img2, label1, label2
+        return img1, img2, high_res_img1, high_res_img2, label1, label2
 
     def _load_label(self, label_path):
         with open(label_path, 'r') as f:

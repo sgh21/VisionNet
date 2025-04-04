@@ -293,7 +293,7 @@ class TransMAE(nn.Module):
             # 默认缩放系数: [theta, cx, cy, tx, ty]
             # theta的默认范围为[-π, π]
             # 其他参数的默认范围为[-1, 1]
-            scale_factors = torch.tensor([7.5/180*torch.pi, 0.7, 0.52], 
+            scale_factors = torch.tensor([7.5/180*torch.pi, 1.0, 1.0], 
                                         device=pred.device)
         else:
             # 确保scale_factors是tensor并且在正确的设备上
@@ -407,6 +407,47 @@ class TransMAE(nn.Module):
             padding_mode='zeros', 
             align_corners=True    
         )
+    def forward_transfer_highres(self, x, params, CXCY=None):
+        """
+        使用相同的变换参数，但在高分辨率图像上应用仿射变换
+        
+        Args:
+            x (Tensor): 高分辨率输入数据，[B, C, H, W]
+            params (Tensor): 变换参数，[B, 3] (theta, tx, ty)
+            CXCY: 旋转中心坐标
+        """
+        # 函数内容与forward_transfer相同，但针对高分辨率图像工作
+        # 直接复用forward_transfer的实现即可，它是基于归一化坐标的，不依赖于分辨率
+        return self.forward_transfer(x, params, CXCY)
+    def forward_loss_highres(self, x1, x2, sigma=0.5):
+        """
+        在高分辨率图像上计算损失
+        
+        Args:
+            x1 (Tensor): 高分辨率输入图像1，形状为[B, C, H, W]
+            x2 (Tensor): 高分辨率输入图像2，形状为[B, C, H, W]
+        """
+        B, C, H, W = x1.shape
+        device = x1.device
+        
+        # 针对高分辨率图像创建权重图
+        if not hasattr(self, 'high_res_weight_map') or self.high_res_weight_map.shape[2:] != (H, W) or self.high_res_weight_map.device != device:
+            y_grid, x_grid = torch.meshgrid(
+                torch.linspace(-1, 1, H, device=device),
+                torch.linspace(-1, 1, W, device=device),
+                indexing='ij'
+            )
+            
+            dist_squared = x_grid.pow(2) + y_grid.pow(2)
+            weights = torch.exp(-dist_squared / (2 * sigma**2))
+            weights = weights * (H * W) / weights.sum()
+            self.high_res_weight_map = weights.unsqueeze(0).unsqueeze(0)
+        
+        weights = self.high_res_weight_map.expand(B, C, H, W)
+        squared_diff = torch.nn.functional.mse_loss(x1, x2, reduction='none')
+        loss = (squared_diff * weights).sum() / (B * C * H * W)
+        
+        return loss
     def forward_loss(self, x1, x2, sigma=0.5):
         """
         计算两个图像之间的MSE损失，权重从中心到边缘逐渐减小
@@ -454,10 +495,29 @@ class TransMAE(nn.Module):
         
         return loss
     
-    def forward(self, x1, x2, mask_ratio=0.75, sigma=0.5, CXCY=None):
+    def forward(self, x1, x2, high_res_x1=None, high_res_x2=None, mask_ratio=0.75, sigma=0.5, CXCY=None):
+        """
+        模型前向传播，包含高分辨率损失计算
+        
+        Args:
+            x1, x2: 低分辨率输入图像 (224x224)
+            high_res_x1, high_res_x2: 高分辨率输入图像 (可选，用于高精度损失计算)
+        """
+        # 从低分辨率图像预测变换参数
         pred = self.forward_pred(x1, x2, mask_ratio)
-        x2_trans = self.forward_transfer(x2, pred, CXCY=CXCY)
-        trans_diff_loss = self.forward_loss(x1, x2_trans, sigma=sigma)
+
+        # 计算损失 - 优先使用高分辨率图像
+        if high_res_x1 is not None and high_res_x2 is not None:
+            # 应用相同的变换参数到高分辨率图像
+            x2_trans = self.forward_transfer_highres(high_res_x2, pred, CXCY=CXCY)
+            # 在高分辨率上计算损失
+            trans_diff_loss = self.forward_loss_highres(high_res_x1, x2_trans, sigma=sigma)
+        else:
+            # 回退到低分辨率损失
+            # 应用变换到低分辨率图像（用于可视化）
+            x2_trans = self.forward_transfer(x2, pred, CXCY=CXCY)
+            trans_diff_loss = self.forward_loss(x1, x2_trans, sigma=sigma)
+        
         return pred, trans_diff_loss, x2_trans
 
 
