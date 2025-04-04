@@ -265,7 +265,7 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
             #*:pred的shape是[B, 3],[theta, tx, ty](theta是弧度,tx,ty是归一化坐标)
             # TODO:使用label给出初始的估计范围，不然训练很难开展，可以使用权重调整策略，并且需要测试相机内参
             delta_label = label2 - label1  # 计算标签的差值 （B,3）
-            pred_vector = create_pred_vector(pred, intrinsic=[-0.0206*2.5,-0.0207*2.5, 1.0],img_size=[224, 224])  # 将预测的变换矩阵参数转换为物理坐标系的平移和旋转参数
+            pred_vector = create_pred_vector(pred, intrinsic=[0.0206*2.5,0.0207*2.5, -1.0],img_size=[224, 224])  # 将预测的变换矩阵参数转换为物理坐标系的平移和旋转参数
             delta_label = label_normalize(delta_label, weight=loss_norm)  # 对标签进行归一化
             pred_vector = label_normalize(pred_vector, weight=loss_norm)
             pred_loss = criterion(pred_vector, delta_label)  # 计算损失
@@ -339,7 +339,7 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                 delta_label = label2 - label1
                 
 
-                pred_vector = create_pred_vector(pred, intrinsic=[-0.0206*2.5,-0.0207*2.5, 1.0],img_size=[224, 224])
+                pred_vector = create_pred_vector(pred, intrinsic=[0.0206*2.5,0.0207*2.5, -1.0],img_size=[224, 224])
                 mae_x, mae_y, mae_rz = calculate_dim_mae(pred_vector, delta_label)
                 
                 total_x_mae += mae_x.item() * batch_size
