@@ -122,23 +122,23 @@ def label_denormalize(label, weight=[10, 5, 20]):
     weight = torch.tensor(weight).to(label.device)
     label = label / weight
     return label
-def get_current_lambda(epoch, args):
+def get_current_lambda(progress, args):
     """
-    计算当前 epoch 对应的 lambda 值
+    根据训练进度计算当前 lambda 值
     
     Args:
-        epoch (int): 当前 epoch
+        progress (float): 当前训练进度 (0.0 ~ 1.0)
         args: 参数配置
         
     Returns:
         float: 当前的 lambda 值
     """
-    if epoch >= args.lambda_warmup_epochs:
+    if progress >= args.lambda_warmup_epochs / args.epochs:
         return args.lambda_end
     
     # 线性增长
-    progress = epoch / args.lambda_warmup_epochs
-    current_lambda = args.lambda_start + progress * (args.lambda_end - args.lambda_start)
+    normalized_progress = progress * args.epochs / args.lambda_warmup_epochs
+    current_lambda = args.lambda_start + normalized_progress * (args.lambda_end - args.lambda_start)
     return current_lambda
 
 def create_transform_matrix(vector, intrinsic, img_size, scale=1.0):
@@ -252,6 +252,10 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
         print('log_dir: {}'.format(log_writer.log_dir))
 
     for data_iter_step, (img1, img2, high_res_img1, high_res_img2, label1, label2) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+        
+        # 计算当前的训练进度
+        iter_progress = data_iter_step / len(data_loader) + epoch
+        overall_progress = iter_progress / args.epochs
         # 每累积一定步数调整学习率
         if data_iter_step % accum_iter == 0:
             lr_sched.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, args)
@@ -280,7 +284,7 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
             pred_vector = label_normalize(pred_vector, weight=loss_norm)
             pred_loss = criterion(pred_vector, delta_label)  # 计算损失
             # 计算总损失
-            current_lambda = get_current_lambda(epoch, args)
+            current_lambda = get_current_lambda(overall_progress, args)
             loss = (1-current_lambda)*pred_loss + current_lambda*trans_diff_loss
 
         loss_value = loss.item()
@@ -335,6 +339,10 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
         img = torch.clamp(img, 0, 1)  # 裁剪到[0, 1]范围
         return img
     
+    # 计算当前epoch对应的总体进度
+    overall_progress = epoch / args.epochs
+    current_lambda = get_current_lambda(overall_progress, args)
+
     with torch.no_grad():  # 在验证过程中不计算梯度
         for batch_idx, (img1, img2, high_res_img1, high_res_img2, label1, label2) in enumerate(metric_logger.log_every(data_loader, 20, header)):
             img1 = img1.to(device, non_blocking=True)
@@ -368,7 +376,7 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                 delta_label = label_normalize(delta_label, weight=loss_norm)  # 对标签进行归一化
                 pred_vector = label_normalize(pred_vector, weight=loss_norm)
                 pred_loss = criterion(pred_vector, delta_label)  # 计算损失
-                current_lambda = get_current_lambda(epoch, args)
+                
                 loss = (1-current_lambda)*pred_loss + current_lambda*trans_diff_loss
                 total_loss += loss.item() * batch_size
 

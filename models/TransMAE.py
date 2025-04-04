@@ -399,7 +399,7 @@ class TransMAE(nn.Module):
         # 组合成采样网格
         grid = torch.stack([x_in, y_in], dim=-1)  # [B, H, W, 2]
         
-        # 使用grid_sample实现双线性插值
+        # 使用grid_sample实现双线性插值 bicubic
         return torch.nn.functional.grid_sample(
             x, 
             grid, 
@@ -505,17 +505,16 @@ class TransMAE(nn.Module):
         """
         # 从低分辨率图像预测变换参数
         pred = self.forward_pred(x1, x2, mask_ratio)
-
+        # 应用变换到低分辨率图像（用于可视化）
+        x2_trans = self.forward_transfer(x2, pred, CXCY=CXCY)
         # 计算损失 - 优先使用高分辨率图像
         if high_res_x1 is not None and high_res_x2 is not None:
             # 应用相同的变换参数到高分辨率图像
-            x2_trans = self.forward_transfer_highres(high_res_x2, pred, CXCY=CXCY)
+            high_res_x2_trans = self.forward_transfer_highres(high_res_x2, pred, CXCY=CXCY)
             # 在高分辨率上计算损失
-            trans_diff_loss = self.forward_loss_highres(high_res_x1, x2_trans, sigma=sigma)
+            trans_diff_loss = self.forward_loss_highres(high_res_x1, high_res_x2_trans, sigma=sigma)
         else:
             # 回退到低分辨率损失
-            # 应用变换到低分辨率图像（用于可视化）
-            x2_trans = self.forward_transfer(x2, pred, CXCY=CXCY)
             trans_diff_loss = self.forward_loss(x1, x2_trans, sigma=sigma)
         
         return pred, trans_diff_loss, x2_trans

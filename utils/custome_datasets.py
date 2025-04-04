@@ -19,7 +19,7 @@ class TransMAEDataset(Dataset):
         
         # 构建高分辨率转换
         self.high_res_transform = transforms.Compose([
-            transforms.Resize((self.high_res_size, self.high_res_size)),
+            transforms.Resize((self.high_res_size, self.high_res_size),interpolation=transforms.InterpolationMode.BICUBIC),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
