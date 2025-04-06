@@ -78,6 +78,9 @@ def get_args_parser():
     parser.add_argument('--lambda_warmup_epochs', type=int, default=40,
                     help='lambda 权重从初始值增长到最终值所需的 epoch 数')
     parser.add_argument('--high_res_size', default=560, type=int)
+    # 添加beta参数，控制pred_loss和trans_diff_loss的权重
+    parser.add_argument('--beta', type=float, default=1.0,
+                        help='权重参数，控制pred_loss和trans_diff_loss*beta的平衡')
     
     # Optimizer parameters
     parser.add_argument('--weight_decay', type=float, default=0.05,
@@ -285,9 +288,11 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
             pred_loss = criterion(pred_vector, delta_label)  # 计算损失
             # 计算总损失
             current_lambda = get_current_lambda(overall_progress, args)
-            loss = (1-current_lambda)*pred_loss + current_lambda*trans_diff_loss
+            loss = (1-current_lambda)*pred_loss + args.beta*current_lambda*trans_diff_loss
 
         loss_value = loss.item()
+        pred_loss_value = pred_loss.item()
+        trans_diff_loss_value = trans_diff_loss.item()
 
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value))
@@ -303,16 +308,22 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
         torch.cuda.synchronize()
 
         metric_logger.update(loss=loss_value)  # 更新损失
+        metric_logger.update(pred_loss=pred_loss_value)  # 更新预测损失
+        metric_logger.update(trans_diff_loss=trans_diff_loss_value)  # 更新变换损失
 
         lr = optimizer.param_groups[0]["lr"]
         metric_logger.update(lr=lr)  # 更新学习率
 
         loss_value_reduce = misc.all_reduce_mean(loss_value)  # 计算全局损失
+        pred_loss_reduce = misc.all_reduce_mean(pred_loss_value)  # 计算全局预测损失
+        trans_diff_loss_reduce = misc.all_reduce_mean(trans_diff_loss_value)  # 计算全局变换损失
         if log_writer is not None and (data_iter_step + 1) % accum_iter == 0:
             epoch_1000x = int((data_iter_step / len(data_loader) + epoch) * 1000)
             log_writer.add_scalar('train/lambda', current_lambda, epoch_1000x)
-            log_writer.add_scalar('train_loss', loss_value_reduce, epoch_1000x)
-            log_writer.add_scalar('lr', lr, epoch_1000x)
+            log_writer.add_scalar('train/train_loss', loss_value_reduce, epoch_1000x)
+            log_writer.add_scalar('train/pred_loss', pred_loss_reduce, epoch_1000x)
+            log_writer.add_scalar('train/trans_diff_loss', trans_diff_loss_reduce, epoch_1000x)
+            log_writer.add_scalar('train/lr', lr, epoch_1000x)
 
     metric_logger.synchronize_between_processes()  # 跨进程同步
     print("Averaged stats:", metric_logger)
@@ -325,6 +336,8 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
     header = 'Test:'
 
     total_loss = 0
+    total_pred_loss = 0
+    total_trans_diff_loss = 0
     total_x_mae = 0
     total_y_mae = 0
     total_rz_mae = 0
@@ -378,11 +391,13 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                 pred_vector = label_normalize(pred_vector, weight=loss_norm)
                 pred_loss = criterion(pred_vector, delta_label)  # 计算损失
                 
-                loss = (1-current_lambda)*pred_loss + current_lambda*trans_diff_loss
+                loss = (1-current_lambda)*pred_loss + args.beta*current_lambda*trans_diff_loss
                 total_loss += loss.item() * batch_size
+                total_pred_loss += pred_loss.item() * batch_size
+                total_trans_diff_loss += trans_diff_loss.item() * batch_size
 
             metric_logger.update(loss=loss.item())  # 更新损失
-            
+            metric_logger.update(trans_diff_loss=trans_diff_loss.item())  # 更新变换损失
             # 每个epoch可视化第一个批次的图像和权重图
             if log_writer is not None and batch_idx == 0:
                 n_vis = min(4, batch_size)
@@ -479,6 +494,8 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
     # 计算平均值
     num_samples = len(data_loader.dataset)
     avg_loss = total_loss / num_samples
+    avg_pred_loss = total_pred_loss / num_samples
+    avg_trans_diff_loss = total_trans_diff_loss / num_samples
     avg_x_mae = total_x_mae / num_samples
     avg_y_mae = total_y_mae / num_samples
     avg_rz_mae = total_rz_mae / num_samples
@@ -486,6 +503,8 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
     # 记录到tensorboard
     if log_writer is not None:
         log_writer.add_scalar('val/loss', avg_loss, epoch)
+        log_writer.add_scalar('val/pred_loss', avg_pred_loss, epoch)
+        log_writer.add_scalar('val/trans_diff_loss', avg_trans_diff_loss, epoch)
         log_writer.add_scalar('val/mae_x_mm', avg_x_mae, epoch)
         log_writer.add_scalar('val/mae_y_mm', avg_y_mae, epoch)
         log_writer.add_scalar('val/mae_rz_deg', avg_rz_mae, epoch)
@@ -498,6 +517,8 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
     metric_logger.synchronize_between_processes()
     print('* Avg loss {:.3f}, MAE x {:.2f}mm, y {:.2f}mm, rz {:.2f}deg'
         .format(metric_logger.loss.global_avg,
+                metric_logger.pred_loss.global_avg,
+                metric_logger.trans_diff_loss.global_avg,
                 metric_logger.mae_x.global_avg,
                 metric_logger.mae_y.global_avg,
                 metric_logger.mae_rz.global_avg))
