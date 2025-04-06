@@ -484,10 +484,10 @@ class TransMAE(nn.Module):
             # 应用相同的变换参数到高分辨率图像
             high_res_x2_trans = self.forward_transfer(high_res_x2, pred, CXCY=CXCY)
             # 在高分辨率上计算损失
-            trans_diff_loss = self.forward_loss(high_res_x1, high_res_x2_trans, sigma=sigma)
+            trans_diff_loss = self.forward_loss(high_res_x1, high_res_x2_trans, params=pred, sigma=sigma, CXCY=CXCY)
         else:
             # 回退到低分辨率损失
-            trans_diff_loss = self.forward_loss(x1, x2_trans, sigma=sigma)
+            trans_diff_loss = self.forward_loss(x1, x2_trans, params=pred, sigma=sigma, CXCY=CXCY)
         
         return pred, trans_diff_loss, x2_trans
 

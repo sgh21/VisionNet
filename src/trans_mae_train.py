@@ -443,19 +443,19 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                     # 上采样权重图以匹配图像尺寸
                     if base_weight.shape != img1_with_weight.shape[1:]:
                         base_weight_resized = torch.nn.functional.interpolate(
-                            base_weight_norm.unsqueeze(0).unsqueeze(0),
+                            base_weight_norm.unsqueeze(0).unsqueeze(0).to(img1_with_weight.device),
                             size=img1_with_weight.shape[1:],
                             mode='bilinear'
                         ).squeeze(0).squeeze(0)
                         
                         trans_weight_resized = torch.nn.functional.interpolate(
-                            trans_weight_norm.unsqueeze(0).unsqueeze(0),
+                            trans_weight_norm.unsqueeze(0).unsqueeze(0).to(img2_trans_with_weight.device),
                             size=img2_trans_with_weight.shape[1:],
                             mode='bilinear'
                         ).squeeze(0).squeeze(0)
                     else:
-                        base_weight_resized = base_weight_norm
-                        trans_weight_resized = trans_weight_norm
+                        base_weight_resized = base_weight_norm.to(img1_with_weight.device)
+                        trans_weight_resized = trans_weight_norm.to(img2_trans_with_weight.device)
                     
                     # 叠加权重图（红色通道）
                     alpha = 0.7  # 透明度
