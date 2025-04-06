@@ -318,10 +318,10 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
-# TODO: 使用label给出初始的估计范围，不然训练很难开展，可以使用权重调整策略，并且需要测试相机内参
+
 def validate(model, data_loader, criterion, device, epoch, log_writer=None, args=None):
-    model.eval()  # 设置模型为评估模式
-    metric_logger = misc.MetricLogger(delimiter="  ")  # 用于记录和打印指标
+    model.eval()
+    metric_logger = misc.MetricLogger(delimiter="  ")
     header = 'Test:'
 
     total_loss = 0
@@ -342,8 +342,8 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
     # 计算当前epoch对应的总体进度
     overall_progress = epoch / args.epochs
     current_lambda = get_current_lambda(overall_progress, args)
-
-    with torch.no_grad():  # 在验证过程中不计算梯度
+    
+    with torch.no_grad():
         for batch_idx, (img1, img2, high_res_img1, high_res_img2, label1, label2) in enumerate(metric_logger.log_every(data_loader, 20, header)):
             img1 = img1.to(device, non_blocking=True)
             img2 = img2.to(device, non_blocking=True)
@@ -354,7 +354,7 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
 
             batch_size = img1.size(0)
             
-            with torch.cuda.amp.autocast():  # 混合精度验证
+            with torch.cuda.amp.autocast():
                 pred, trans_diff_loss, img2_trans = model(
                     img1, img2, 
                     high_res_x1=high_res_img1, 
@@ -363,6 +363,7 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                     sigma=args.sigma, 
                     CXCY=args.CXCY
                 )
+                
                 delta_label = label2 - label1
                 
 
@@ -381,18 +382,89 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                 total_loss += loss.item() * batch_size
 
             metric_logger.update(loss=loss.item())  # 更新损失
-            # 每个epoch只可视化一个批次的图像
+            
+            # 每个epoch可视化第一个批次的图像和权重图
             if log_writer is not None and batch_idx == 0:
-                # 选择批次中的前min(8, batch_size)个样本进行可视化
                 n_vis = min(4, batch_size)
                 
-                # 反归一化图像
+                # 可视化原始图像和变换后的图像
                 img1_vis = denormalize_image(img1[:n_vis])
                 img2_vis = denormalize_image(img2[:n_vis])
                 img2_trans_vis = denormalize_image(img2_trans[:n_vis])
                 
                 # 计算差异图像
-                diff_vis = torch.abs(img2_trans_vis - img1_vis)  # 绝对差异
+                diff_vis = torch.abs(img2_trans_vis - img1_vis)
+                
+                # 获取权重图和变换后的权重图
+                # 注意：这里需要访问模型内部状态，可能需要在模型中添加hook或方法
+                for i in range(n_vis):
+                    # 1. 基础权重图
+                    base_weight = model.base_weight_map[0, 0].cpu()  # 获取基础权重图
+                    
+                    # 2. 提取当前样本的变换参数
+                    sample_params = pred[i:i+1].detach()
+                    
+                    # 3. 计算逆变换参数
+                    inverse_params = torch.zeros_like(sample_params)
+                    inverse_params[:, 0] = -sample_params[:, 0]  # 相反的旋转角度
+                    inverse_params[:, 1:] = -sample_params[:, 1:]  # 相反的平移
+                    
+                    # 4. 将基础权重图转为批次
+                    batch_weight_map = model.base_weight_map.expand(1, 1, 
+                                                                    model.base_weight_map.shape[2], 
+                                                                    model.base_weight_map.shape[3])
+                    
+                    # 5. 应用变换得到变换后的权重图
+                    transformed_weight = model.forward_transfer(batch_weight_map.to(device), 
+                                                                inverse_params, 
+                                                                CXCY=args.CXCY)
+                    
+                    # 6. 可视化为热力图
+                    # 归一化权重图以便更好地可视化
+                    base_weight_norm = (base_weight - base_weight.min()) / (base_weight.max() - base_weight.min())
+                    trans_weight_norm = (transformed_weight[0, 0].cpu() - transformed_weight[0, 0].min().cpu()) / (transformed_weight[0, 0].max().cpu() - transformed_weight[0, 0].min().cpu())
+                    
+                    # 创建彩色热力图
+                    base_weight_heatmap = torch.zeros(3, base_weight.shape[0], base_weight.shape[1])
+                    trans_weight_heatmap = torch.zeros(3, base_weight.shape[0], base_weight.shape[1])
+                    
+                    # 使用简单的热力图映射：红色通道表示权重
+                    base_weight_heatmap[0] = base_weight_norm
+                    trans_weight_heatmap[0] = trans_weight_norm
+                    
+                    # 记录到TensorBoard
+                    log_writer.add_image(f'val/sample{i}/base_weight', base_weight_heatmap, epoch)
+                    log_writer.add_image(f'val/sample{i}/transformed_weight', trans_weight_heatmap, epoch)
+                    
+                    # 将权重图叠加到原始图像上
+                    img1_with_weight = img1_vis[i].clone()
+                    img2_trans_with_weight = img2_trans_vis[i].clone()
+                    
+                    # 上采样权重图以匹配图像尺寸
+                    if base_weight.shape != img1_with_weight.shape[1:]:
+                        base_weight_resized = torch.nn.functional.interpolate(
+                            base_weight_norm.unsqueeze(0).unsqueeze(0),
+                            size=img1_with_weight.shape[1:],
+                            mode='bilinear'
+                        ).squeeze(0).squeeze(0)
+                        
+                        trans_weight_resized = torch.nn.functional.interpolate(
+                            trans_weight_norm.unsqueeze(0).unsqueeze(0),
+                            size=img2_trans_with_weight.shape[1:],
+                            mode='bilinear'
+                        ).squeeze(0).squeeze(0)
+                    else:
+                        base_weight_resized = base_weight_norm
+                        trans_weight_resized = trans_weight_norm
+                    
+                    # 叠加权重图（红色通道）
+                    alpha = 0.7  # 透明度
+                    img1_with_weight[0] = img1_with_weight[0] * (1-alpha) + base_weight_resized * alpha
+                    img2_trans_with_weight[0] = img2_trans_with_weight[0] * (1-alpha) + trans_weight_resized * alpha
+                    
+                    # 添加到TensorBoard
+                    log_writer.add_image(f'val/sample{i}/img1_with_weight', img1_with_weight, epoch)
+                    log_writer.add_image(f'val/sample{i}/img2_trans_with_weight', img2_trans_with_weight, epoch)
                 
                 # 创建图像网格
                 grid_img1 = torchvision.utils.make_grid(img1_vis, nrow=n_vis, padding=2)
@@ -430,12 +502,130 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
     # 同步并打印结果
     metric_logger.synchronize_between_processes()
     print('* Avg loss {:.3f}, MAE x {:.2f}mm, y {:.2f}mm, rz {:.2f}deg'
-          .format(metric_logger.loss.global_avg,
-                 metric_logger.mae_x.global_avg,
-                 metric_logger.mae_y.global_avg,
-                 metric_logger.mae_rz.global_avg))
+        .format(metric_logger.loss.global_avg,
+                metric_logger.mae_x.global_avg,
+                metric_logger.mae_y.global_avg,
+                metric_logger.mae_rz.global_avg))
 
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+# TODO: 使用label给出初始的估计范围，不然训练很难开展，可以使用权重调整策略，并且需要测试相机内参
+# def validate(model, data_loader, criterion, device, epoch, log_writer=None, args=None):
+#     model.eval()  # 设置模型为评估模式
+#     metric_logger = misc.MetricLogger(delimiter="  ")  # 用于记录和打印指标
+#     header = 'Test:'
+
+#     total_loss = 0
+#     total_x_mae = 0
+#     total_y_mae = 0
+#     total_rz_mae = 0
+#     # * :图像的反归一化和可视化
+#     # 图像反归一化的均值和标准差
+#     mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
+#     std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
+
+#     def denormalize_image(img):
+#         """将归一化的图像反归一化回[0, 1]范围"""
+#         img = img * std + mean  # 反归一化
+#         img = torch.clamp(img, 0, 1)  # 裁剪到[0, 1]范围
+#         return img
+    
+#     # 计算当前epoch对应的总体进度
+#     overall_progress = epoch / args.epochs
+#     current_lambda = get_current_lambda(overall_progress, args)
+
+#     with torch.no_grad():  # 在验证过程中不计算梯度
+#         for batch_idx, (img1, img2, high_res_img1, high_res_img2, label1, label2) in enumerate(metric_logger.log_every(data_loader, 20, header)):
+#             img1 = img1.to(device, non_blocking=True)
+#             img2 = img2.to(device, non_blocking=True)
+#             high_res_img1 = high_res_img1.to(device, non_blocking=True)
+#             high_res_img2 = high_res_img2.to(device, non_blocking=True)
+#             label1 = label1.to(device, non_blocking=True)
+#             label2 = label2.to(device, non_blocking=True)
+
+#             batch_size = img1.size(0)
+            
+#             with torch.cuda.amp.autocast():  # 混合精度验证
+#                 pred, trans_diff_loss, img2_trans = model(
+#                     img1, img2, 
+#                     high_res_x1=high_res_img1, 
+#                     high_res_x2=high_res_img2,
+#                     mask_ratio=args.mask_ratio, 
+#                     sigma=args.sigma, 
+#                     CXCY=args.CXCY
+#                 )
+#                 delta_label = label2 - label1
+                
+
+#                 pred_vector = create_pred_vector(pred, intrinsic=[0.0206,0.0207, -1.0],img_size=[560, 560])
+#                 mae_x, mae_y, mae_rz = calculate_dim_mae(pred_vector, delta_label)
+                
+#                 total_x_mae += mae_x.item() * batch_size
+#                 total_y_mae += mae_y.item() * batch_size
+#                 total_rz_mae += mae_rz.item() * batch_size
+
+#                 delta_label = label_normalize(delta_label, weight=loss_norm)  # 对标签进行归一化
+#                 pred_vector = label_normalize(pred_vector, weight=loss_norm)
+#                 pred_loss = criterion(pred_vector, delta_label)  # 计算损失
+                
+#                 loss = (1-current_lambda)*pred_loss + current_lambda*trans_diff_loss
+#                 total_loss += loss.item() * batch_size
+
+#             metric_logger.update(loss=loss.item())  # 更新损失
+#             # 每个epoch只可视化一个批次的图像
+#             if log_writer is not None and batch_idx == 0:
+#                 # 选择批次中的前min(8, batch_size)个样本进行可视化
+#                 n_vis = min(4, batch_size)
+                
+#                 # 反归一化图像
+#                 img1_vis = denormalize_image(img1[:n_vis])
+#                 img2_vis = denormalize_image(img2[:n_vis])
+#                 img2_trans_vis = denormalize_image(img2_trans[:n_vis])
+                
+#                 # 计算差异图像
+#                 diff_vis = torch.abs(img2_trans_vis - img1_vis)  # 绝对差异
+                
+#                 # 创建图像网格
+#                 grid_img1 = torchvision.utils.make_grid(img1_vis, nrow=n_vis, padding=2)
+#                 grid_img2 = torchvision.utils.make_grid(img2_vis, nrow=n_vis, padding=2)
+#                 grid_trans = torchvision.utils.make_grid(img2_trans_vis, nrow=n_vis, padding=2)
+#                 grid_diff = torchvision.utils.make_grid(diff_vis, nrow=n_vis, padding=2)
+                
+#                 # 添加到tensorboard
+#                 log_writer.add_image('val/img1_source', grid_img1, epoch)
+#                 log_writer.add_image('val/img2_target', grid_img2, epoch)
+#                 log_writer.add_image('val/img2_trans', grid_trans, epoch)
+#                 log_writer.add_image('val/trans_diff', grid_diff, epoch)
+                
+#                 # 额外添加一个合并的可视化图像，便于比较
+#                 grid_combined = torch.cat([grid_img1, grid_img2, grid_trans, grid_diff], dim=1)
+#                 log_writer.add_image('val/comparison', grid_combined, epoch)
+#     # 计算平均值
+#     num_samples = len(data_loader.dataset)
+#     avg_loss = total_loss / num_samples
+#     avg_x_mae = total_x_mae / num_samples
+#     avg_y_mae = total_y_mae / num_samples
+#     avg_rz_mae = total_rz_mae / num_samples
+    
+#     # 记录到tensorboard
+#     if log_writer is not None:
+#         log_writer.add_scalar('val/loss', avg_loss, epoch)
+#         log_writer.add_scalar('val/mae_x_mm', avg_x_mae, epoch)
+#         log_writer.add_scalar('val/mae_y_mm', avg_y_mae, epoch)
+#         log_writer.add_scalar('val/mae_rz_deg', avg_rz_mae, epoch)
+
+#     metric_logger.update(mae_x=avg_x_mae)
+#     metric_logger.update(mae_y=avg_y_mae)
+#     metric_logger.update(mae_rz=avg_rz_mae)
+
+#     # 同步并打印结果
+#     metric_logger.synchronize_between_processes()
+#     print('* Avg loss {:.3f}, MAE x {:.2f}mm, y {:.2f}mm, rz {:.2f}deg'
+#           .format(metric_logger.loss.global_avg,
+#                  metric_logger.mae_x.global_avg,
+#                  metric_logger.mae_y.global_avg,
+#                  metric_logger.mae_rz.global_avg))
+
+#     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 def main(args):
     print('job dir: {}'.format(os.path.dirname(os.path.realpath(__file__))))

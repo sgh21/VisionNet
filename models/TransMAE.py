@@ -310,7 +310,7 @@ class TransMAE(nn.Module):
         return pred
     def forward_transfer(self, x, params, CXCY=None):
         """
-        使用5参数[theta,cx,cy,tx,ty]应用仿射变换到输入图像
+        使用3参数[theta,tx,ty]应用仿射变换到输入图像
         
         Args:
             x (Tensor): 输入数据，[B, C, H, W]
@@ -407,94 +407,66 @@ class TransMAE(nn.Module):
             padding_mode='zeros', 
             align_corners=True    
         )
-    def forward_transfer_highres(self, x, params, CXCY=None):
+
+    def forward_loss(self, x1, x2, params, sigma=0.5, CXCY=None):
         """
-        使用相同的变换参数，但在高分辨率图像上应用仿射变换
-        
-        Args:
-            x (Tensor): 高分辨率输入数据，[B, C, H, W]
-            params (Tensor): 变换参数，[B, 3] (theta, tx, ty)
-            CXCY: 旋转中心坐标
-        """
-        # 函数内容与forward_transfer相同，但针对高分辨率图像工作
-        # 直接复用forward_transfer的实现即可，它是基于归一化坐标的，不依赖于分辨率
-        return self.forward_transfer(x, params, CXCY)
-    def forward_loss_highres(self, x1, x2, sigma=0.5):
-        """
-        在高分辨率图像上计算损失
-        
-        Args:
-            x1 (Tensor): 高分辨率输入图像1，形状为[B, C, H, W]
-            x2 (Tensor): 高分辨率输入图像2，形状为[B, C, H, W]
-        """
-        B, C, H, W = x1.shape
-        device = x1.device
-        
-        # 针对高分辨率图像创建权重图
-        if not hasattr(self, 'high_res_weight_map') or self.high_res_weight_map.shape[2:] != (H, W) or self.high_res_weight_map.device != device:
-            y_grid, x_grid = torch.meshgrid(
-                torch.linspace(-1, 1, H, device=device),
-                torch.linspace(-1, 1, W, device=device),
-                indexing='ij'
-            )
-            
-            dist_squared = x_grid.pow(2) + y_grid.pow(2)
-            weights = torch.exp(-dist_squared / (2 * sigma**2))
-            weights = weights * (H * W) / weights.sum()
-            self.high_res_weight_map = weights.unsqueeze(0).unsqueeze(0)
-        
-        weights = self.high_res_weight_map.expand(B, C, H, W)
-        squared_diff = torch.nn.functional.mse_loss(x1, x2, reduction='none')
-        loss = (squared_diff * weights).sum() / (B * C * H * W)
-        
-        return loss
-    def forward_loss(self, x1, x2, sigma=0.5):
-        """
-        计算两个图像之间的MSE损失，权重从中心到边缘逐渐减小
+        计算两个图像之间的MSE损失，权重图会随图像变换而变换
         
         Args:
             x1 (Tensor): 输入图像1，形状为[B, C, H, W]
             x2 (Tensor): 输入图像2，形状为[B, C, H, W]
-            
+            params (Tensor): 变换参数，[B, 3] (theta, tx, ty)
+            sigma (float): 高斯权重的标准差
+            CXCY (list): 旋转中心坐标 [cx, cy]
+                
         Returns:
             Tensor: 加权MSE损失
         """
         B, C, H, W = x1.shape
         device = x1.device
         
-        # 预计算网格坐标 (只需计算一次，存为类变量)
-        if not hasattr(self, 'weight_map') or self.weight_map.shape[2:] != (H, W) or self.weight_map.device != device:
-            # 创建高斯权重图，中心权重高，边缘权重低
+        # 创建基础权重图（只计算一次并缓存）
+        if not hasattr(self, 'base_weight_map') or self.base_weight_map.shape[2:] != (H, W) or self.base_weight_map.device != device:
             y_grid, x_grid = torch.meshgrid(
                 torch.linspace(-1, 1, H, device=device),
                 torch.linspace(-1, 1, W, device=device),
                 indexing='ij'
             )
             
-            # 计算每个像素到图像中心的距离 - 使用平方距离避免开方
+            # 计算到图像中心的距离
             dist_squared = x_grid.pow(2) + y_grid.pow(2)
             
             # 使用高斯函数生成权重图
-            # sigma控制权重从中心衰减的速度，值越大衰减越慢
-            weights = torch.exp(-dist_squared / (2 * sigma**2))
+            base_weights = torch.exp(-dist_squared / (2 * sigma**2))
             
             # 归一化权重，使权重总和为像素数量
-            weights = weights * (H * W) / weights.sum()
+            base_weights = base_weights * (H * W) / base_weights.sum()
             
-            # 保存为类变量，避免重复计算
-            self.weight_map = weights.unsqueeze(0).unsqueeze(0)
+            # 保存为单通道图像
+            self.base_weight_map = base_weights.unsqueeze(0).unsqueeze(0)  # [1, 1, H, W]
         
-        # 扩展维度以匹配当前批次大小
-        weights = self.weight_map.expand(B, C, H, W)
+        # 对权重图应用与图像相同的变换
+        # 注意：这里需要传入变换参数的逆，因为我们想要让权重图跟随图像变换
+        # 逆变换 = [-theta, -tx, -ty]
+        inverse_params = torch.zeros_like(params)
+        inverse_params[:, 0] = -params[:, 0]  # 相反的旋转角度
+        inverse_params[:, 1:] = -params[:, 1:]  # 相反的平移
         
-        # 计算MSE损失并应用权重 - 使用内置函数优化
+        # 将基础权重图扩展到批次大小
+        batch_weight_map = self.base_weight_map.expand(B, 1, H, W)
+        
+        # 应用变换到权重图
+        transformed_weight_map = self.forward_transfer(batch_weight_map, inverse_params, CXCY=CXCY)
+        
+        # 扩展到匹配通道数
+        weights = transformed_weight_map.expand(B, C, H, W)
+        
+        # 计算MSE损失并应用权重
         squared_diff = torch.nn.functional.mse_loss(x1, x2, reduction='none')
-        
-        # 加权平均 - 使用sum而不是mean以保持数值稳定性
         loss = (squared_diff * weights).sum() / (B * C * H * W)
         
         return loss
-    
+
     def forward(self, x1, x2, high_res_x1=None, high_res_x2=None, mask_ratio=0.75, sigma=0.5, CXCY=None):
         """
         模型前向传播，包含高分辨率损失计算
@@ -510,9 +482,9 @@ class TransMAE(nn.Module):
         # 计算损失 - 优先使用高分辨率图像
         if high_res_x1 is not None and high_res_x2 is not None:
             # 应用相同的变换参数到高分辨率图像
-            high_res_x2_trans = self.forward_transfer_highres(high_res_x2, pred, CXCY=CXCY)
+            high_res_x2_trans = self.forward_transfer(high_res_x2, pred, CXCY=CXCY)
             # 在高分辨率上计算损失
-            trans_diff_loss = self.forward_loss_highres(high_res_x1, high_res_x2_trans, sigma=sigma)
+            trans_diff_loss = self.forward_loss(high_res_x1, high_res_x2_trans, sigma=sigma)
         else:
             # 回退到低分辨率损失
             trans_diff_loss = self.forward_loss(x1, x2_trans, sigma=sigma)
