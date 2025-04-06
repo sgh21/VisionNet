@@ -612,6 +612,9 @@ def main():
         print("执行精细优化...")
         # 创建边界
         fx_init, fy_init, flag = optimal_intrinsic
+        fx_init = 0.0206
+        fy_init = 0.0207
+        flag = -1.0
         bounds = [(fx_init * 0.95, fx_init * 1.05), (fy_init * 0.95, fy_init * 1.05)]
         
         optimal_intrinsic, min_loss = optimize_intrinsic_fine(
