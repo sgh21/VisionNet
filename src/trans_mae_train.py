@@ -404,11 +404,6 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                     # 2. 提取当前样本的变换参数
                     sample_params = pred[i:i+1].detach()
                     
-                    # 3. 计算逆变换参数
-                    # inverse_params = torch.zeros_like(sample_params)
-                    # inverse_params[:, 0] = -sample_params[:, 0]  # 相反的旋转角度
-                    # inverse_params[:, 1:] = -sample_params[:, 1:]  # 相反的平移
-                    
                     # 4. 将基础权重图转为批次
                     batch_weight_map = model.base_weight_map.expand(1, 1, 
                                                                     model.base_weight_map.shape[2], 

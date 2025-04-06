@@ -408,7 +408,7 @@ class TransMAE(nn.Module):
             align_corners=True    
         )
 
-    def forward_loss(self, x1, x2, params, sigma=0.5, CXCY=None):
+    def forward_loss(self, x1, x2, params, sigma=[0.5, 0.5], CXCY=None):
         """
         计算两个图像之间的MSE损失，权重图会随图像变换而变换
         
@@ -416,7 +416,7 @@ class TransMAE(nn.Module):
             x1 (Tensor): 输入图像1，形状为[B, C, H, W]
             x2 (Tensor): 输入图像2，形状为[B, C, H, W]
             params (Tensor): 变换参数，[B, 3] (theta, tx, ty)
-            sigma (float): 高斯权重的标准差
+            sigma (List(float)): 高斯权重的标准差
             CXCY (list): 旋转中心坐标 [cx, cy]
                 
         Returns:
@@ -433,24 +433,20 @@ class TransMAE(nn.Module):
                 indexing='ij'
             )
             
+            sigma_x, sigma_y = sigma
             # 计算到图像中心的距离
-            dist_squared = x_grid.pow(2) + y_grid.pow(2)
+            # 对 x,y 分别计算高斯权重衰减
+            dist_x = x_grid.pow(2) / (2 * sigma_x**2)
+            dist_y = y_grid.pow(2) / (2 * sigma_y**2)
             
             # 使用高斯函数生成权重图
-            base_weights = torch.exp(-dist_squared / (2 * sigma**2))
+            base_weights = torch.exp(-(dist_x + dist_y))
             
             # 归一化权重，使权重总和为像素数量
             base_weights = base_weights * (H * W) / base_weights.sum()
             
             # 保存为单通道图像
             self.base_weight_map = base_weights.unsqueeze(0).unsqueeze(0)  # [1, 1, H, W]
-        
-        # 对权重图应用与图像相同的变换
-        # 注意：这里需要传入变换参数的逆，因为我们想要让权重图跟随图像变换
-        # 逆变换 = [-theta, -tx, -ty]
-        # inverse_params = torch.zeros_like(params)
-        # inverse_params[:, 0] = -params[:, 0]  # 相反的旋转角度
-        # inverse_params[:, 1:] = -params[:, 1:]  # 相反的平移
         
         # 将基础权重图扩展到批次大小
         batch_weight_map = self.base_weight_map.expand(B, 1, H, W)
