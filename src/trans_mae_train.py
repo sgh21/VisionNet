@@ -92,7 +92,7 @@ def get_args_parser():
 
     parser.add_argument('--warmup_epochs', type=int, default=40, metavar='N',
                         help='epochs to warmup LR')
-    parser.add_argument('--sigma', default=0.5, type=float)
+    parser.add_argument('--sigma', type=float, nargs=2, default=[0.5, 0.5],)
 
     # Dataset parameters
     parser.add_argument('--data_path', default='./data', type=str)
