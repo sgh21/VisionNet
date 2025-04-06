@@ -448,15 +448,15 @@ class TransMAE(nn.Module):
         # 对权重图应用与图像相同的变换
         # 注意：这里需要传入变换参数的逆，因为我们想要让权重图跟随图像变换
         # 逆变换 = [-theta, -tx, -ty]
-        inverse_params = torch.zeros_like(params)
-        inverse_params[:, 0] = -params[:, 0]  # 相反的旋转角度
-        inverse_params[:, 1:] = -params[:, 1:]  # 相反的平移
+        # inverse_params = torch.zeros_like(params)
+        # inverse_params[:, 0] = -params[:, 0]  # 相反的旋转角度
+        # inverse_params[:, 1:] = -params[:, 1:]  # 相反的平移
         
         # 将基础权重图扩展到批次大小
         batch_weight_map = self.base_weight_map.expand(B, 1, H, W)
         
         # 应用变换到权重图
-        transformed_weight_map = self.forward_transfer(batch_weight_map, inverse_params, CXCY=CXCY)
+        transformed_weight_map = self.forward_transfer(batch_weight_map, params, CXCY=CXCY)
         
         # 扩展到匹配通道数
         weights = transformed_weight_map.expand(B, C, H, W)
