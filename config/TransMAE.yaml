@@ -25,6 +25,7 @@ lambda_start: 0.1
 lambda_end: 0.8
 lambda_warmup_epochs: 50
 sigma: [0.6, 0.3]
+method: touch_mask
 high_res_size: 560
 # noise_ratio: 0.3
 # noise_level: 0.5

@@ -209,7 +209,7 @@ def add_radial_noise(image, max_noise=0.1):
     x = torch.linspace(-1, 1, W)
     y = torch.linspace(-1, 1, H)
     xx, yy = torch.meshgrid(x, y)
-    # 计算到中心的距离
+    # 计算到中心的距离+
     distance = torch.sqrt(xx*xx + yy*yy)
     # 将距离归一化到[0,1]
     distance = distance / distance.max()

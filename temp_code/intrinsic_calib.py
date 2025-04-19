@@ -643,4 +643,5 @@ def main():
     print(f"结果已保存到: {result_file}")
 
 if __name__ == "__main__":
+    multiprocessing.set_start_method('spawn', force=True)
     main()

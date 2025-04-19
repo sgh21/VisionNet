@@ -4,6 +4,7 @@ from functools import partial
 from timm.models.vision_transformer import PatchEmbed, Block
 from utils.pos_embed import get_2d_sincos_pos_embed
 from models.Footshone import MAEEncoder, CrossAttention
+from utils.TransUtils import PatchBasedIlluminationAlignment as IlluminationAlignment
 
 class MAEEncoder(nn.Module):
 
@@ -187,6 +188,9 @@ class TransMAE(nn.Module):
         drop_rate=0.1,
         qkv_bias=False,
         pretrained_path=None,
+        window_size=4,
+        kernel_size=8,
+        keep_variance=True,
     ):
         super().__init__()
         
@@ -220,6 +224,12 @@ class TransMAE(nn.Module):
             nn.Tanh()
         )
 
+        self.illumination_alignment = IlluminationAlignment(
+            window_size=window_size, 
+            kernel_size=kernel_size, 
+            keep_variance=keep_variance
+            )
+        
         self.initialize_weights() 
 
     def initialize_weights(self):
@@ -286,7 +296,7 @@ class TransMAE(nn.Module):
         feat_fusion = self.feat_norm(feat_fusion)  # [B, 2C] # !: 测试归一化的效果
 
         # 原始预测
-        pred = self.regressor(feat_fusion)  # [B, 5]
+        pred = self.regressor(feat_fusion)  # [B, 3]
         
         # 设置默认缩放系数
         if scale_factors is None:
@@ -407,32 +417,43 @@ class TransMAE(nn.Module):
             padding_mode='zeros', 
             align_corners=True    
         )
-
-    def forward_loss(self, x1, x2, params, sigma=[0.5, 0.5], CXCY=None):
+    def forwrd_weights_map(self, shape, device, **kwargs):
         """
-        计算两个图像之间的MSE损失，权重图会随图像变换而变换
+        生成根据不同方法创建的权重图，用于在图像变换过程中赋予不同区域不同的重要性
         
         Args:
-            x1 (Tensor): 输入图像1，形状为[B, C, H, W]
-            x2 (Tensor): 输入图像2，形状为[B, C, H, W]
-            params (Tensor): 变换参数，[B, 3] (theta, tx, ty)
-            sigma (List(float)): 高斯权重的标准差
-            CXCY (list): 旋转中心坐标 [cx, cy]
-                
+            shape (tuple): 输出权重图的形状，格式为(B, C, H, W)，其中B是批次大小，
+                        C是通道数(通常为1)，H和W是图像高度和宽度
+            device (torch.device): 权重图应该在的设备(CPU或GPU)
+            **kwargs: 额外的参数，根据method不同而变化
+                - 对于'gaussian'，可以提供'sigma'参数控制高斯分布的扩散程度:
+                    - sigma (list/float): [sigma_x, sigma_y]或单个值，控制x和y方向的方差
+                - 对于'touch_mask'，需要提供'touch_mask'参数:
+                    - touch_mask (Tensor): 形状为[1, 1, H, W]的掩码张量
+        
         Returns:
-            Tensor: 加权MSE损失
+            torch.Tensor: 批次化的权重图，形状为[B, 1, H, W]，可用于后续的权重损失计算
+        
+        注意:
+            - 对于'gaussian'方法，基础权重图会被缓存，只在必要时重新计算
+            - 高斯权重图会被归一化，使总权重和等于像素数量(H*W)
+            - 触摸掩码方法需要外部提供掩码，适合用户交互场景
         """
-        B, C, H, W = x1.shape
-        device = x1.device
+        B, C, H, W = shape
+
         
         # 创建基础权重图（只计算一次并缓存）
-        if not hasattr(self, 'base_weight_map') or self.base_weight_map.shape[2:] != (H, W) or self.base_weight_map.device != device:
+        if not hasattr(self, 'base_weight_map') \
+        or self.base_weight_map.shape[2:] != (H, W) \
+        or self.base_weight_map.device != device :
+            
             y_grid, x_grid = torch.meshgrid(
                 torch.linspace(-1, 1, H, device=device),
                 torch.linspace(-1, 1, W, device=device),
                 indexing='ij'
             )
-            
+
+            sigma = kwargs.get('sigma', [0.5, 0.5])
             sigma_x, sigma_y = sigma
             # 计算到图像中心的距离
             # 对 x,y 分别计算高斯权重衰减
@@ -450,9 +471,49 @@ class TransMAE(nn.Module):
         
         # 将基础权重图扩展到批次大小
         batch_weight_map = self.base_weight_map.expand(B, 1, H, W)
+        return batch_weight_map
+
+    def forward_loss(self, x1, x2, params, CXCY=None, method = 'gaussian', **kwargs):
+        """
+        计算两个图像之间的MSE损失，权重图会随图像变换而变换
         
-        # 应用变换到权重图
-        transformed_weight_map = self.forward_transfer(batch_weight_map, params, CXCY=CXCY)
+        Args:
+            x1 (Tensor): 输入图像1，形状为[B, C, H, W]
+            x2 (Tensor): 输入图像2，形状为[B, C, H, W]
+            params (Tensor): 变换参数，[B, 3] (theta, tx, ty)
+            sigma (List(float)): 高斯权重的标准差
+            CXCY (list): 旋转中心坐标 [cx, cy]
+                
+        Returns:
+            Tensor: 加权MSE损失
+        """
+        B, C, H, W = shape =  x1.shape
+        device = x1.device
+        
+        # 将基础权重图扩展到批次大小
+        if method == 'gaussian':
+            batch_weight_map = self.forwrd_weights_map(shape, device, method=method, **kwargs)
+            # 应用变换到权重图
+            transformed_weight_map = self.forward_transfer(batch_weight_map, params, CXCY=CXCY)
+        
+        elif method == 'touch_mask':
+            touch_img_mask1 = kwargs.get('touch_img_mask1', None) # [B, 1, H, W]
+            touch_img_mask2 = kwargs.get('touch_img_mask2', None) # [B, 1, H, W]
+            if touch_img_mask1 is None or touch_img_mask2 is None:
+                raise ValueError("For 'touch_mask' method, 'touch_img_mask1' and 'touch_img_mask2' must be provided.")
+            
+            transformed_touch_img_mask2 = self.forward_transfer(touch_img_mask2, params, CXCY=CXCY)
+            # 将两张图像的掩码结合
+            transformed_weight_map = torch.max(touch_img_mask1, transformed_touch_img_mask2)
+            
+            # 归一化权重图，使权重总和为像素数量
+            pixel_count = H * W
+            current_sum = transformed_weight_map.sum(dim=(2, 3), keepdim=True)
+            
+            # 归一化系数 = 期望总和 / 当前总和
+            scale_factor = pixel_count / (current_sum + 1e-8)
+            # 应用归一化
+            transformed_weight_map = transformed_weight_map * scale_factor
         
         # 扩展到匹配通道数
         weights = transformed_weight_map.expand(B, C, H, W)
@@ -463,7 +524,7 @@ class TransMAE(nn.Module):
         
         return loss
 
-    def forward(self, x1, x2, high_res_x1=None, high_res_x2=None, mask_ratio=0.75, sigma=0.5, CXCY=None):
+    def forward(self, x1, x2, high_res_x1=None, high_res_x2=None, mask_ratio=0.75, CXCY=None, method='gaussian', **kwargs):
         """
         模型前向传播，包含高分辨率损失计算
         
@@ -479,11 +540,26 @@ class TransMAE(nn.Module):
         if high_res_x1 is not None and high_res_x2 is not None:
             # 应用相同的变换参数到高分辨率图像
             high_res_x2_trans = self.forward_transfer(high_res_x2, pred, CXCY=CXCY)
+            high_res_x2_trans_equal = self.illumination_alignment(high_res_x2_trans, high_res_x1)
             # 在高分辨率上计算损失
-            trans_diff_loss = self.forward_loss(high_res_x1, high_res_x2_trans, params=pred, sigma=sigma, CXCY=CXCY)
+            trans_diff_loss = self.forward_loss(
+                high_res_x1, 
+                high_res_x2_trans_equal, 
+                params=pred, 
+                CXCY=CXCY,
+                method=method,
+                **kwargs
+                )
         else:
             # 回退到低分辨率损失
-            trans_diff_loss = self.forward_loss(x1, x2_trans, params=pred, sigma=sigma, CXCY=CXCY)
+            trans_diff_loss = self.forward_loss(
+                x1, 
+                x2_trans, 
+                params=pred, 
+                CXCY=CXCY,
+                method=method,
+                **kwargs
+                )
         
         return pred, trans_diff_loss, x2_trans
 

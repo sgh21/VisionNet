@@ -6,17 +6,32 @@ from torch.utils.data import Dataset
 import random
 from utils.VisionUtils import add_radial_noise
 import torchvision.transforms as transforms
+from utils.TransUtils import TouchWeightMapTransform
+from config import M
 
 class TransMAEDataset(Dataset):
     def __init__(self, config, is_train=True, transform=None, is_eval = False, use_fix_template = False):
         self.is_train = is_train
         self.is_eval = is_eval
         root = os.path.join(config.data_path, 'train' if is_train else 'val')
-        self.img_dir = os.path.join(root, 'images')
+        self.rgb_img_dir = os.path.join(root, 'rgb_images')
+        self.touch_img_dir = os.path.join(root, 'touch_images')
+        self.touch_img_template_path = os.path.join(self.touch_img_dir, config.touch_img_template_path)
         self.label_dir = os.path.join(root, 'labels')
         self.sample_ratio = config.pair_downsample
         self.high_res_size = config.high_res_size
-        
+
+        # TODO: 根据mask生成权重图，将触觉对齐到RGB图像
+        self.touch_transform = TouchWeightMapTransform(
+            template_path = self.touch_img_template_path,
+            min_area = 500,
+            min_rectangularity= 0.6, 
+            M = M,
+            canvas_size= (self.high_res_size, self.high_res_size),
+            to_tensor = True,
+            normalized = True,
+        )
+
         # 构建高分辨率转换
         self.high_res_transform = transforms.Compose([
             transforms.Resize((self.high_res_size, self.high_res_size),interpolation=transforms.InterpolationMode.BICUBIC),
@@ -25,7 +40,7 @@ class TransMAEDataset(Dataset):
         ])
         # 按类别组织图片
         self.class_to_imgs = {}
-        for img_file in os.listdir(self.img_dir):
+        for img_file in os.listdir(self.rgb_img_dir):
             class_name = img_file.split('_')[-2]  # 根据文件名获取类别
             if class_name not in self.class_to_imgs:
                 self.class_to_imgs[class_name] = []
@@ -53,6 +68,7 @@ class TransMAEDataset(Dataset):
                             for i in range(len(imgs))
                             for j in range(i+1, len(imgs))]
             
+            
             if self.is_train or self.is_eval:  # 训练集下采样
                 num_samples = int(len(class_pairs) * self.sample_ratio)
                 if num_samples > 0:
@@ -62,6 +78,9 @@ class TransMAEDataset(Dataset):
                 if num_samples > 0:
                     class_pairs = random.sample(class_pairs, num_samples)
             pairs.extend(class_pairs)
+            # 随机打散
+            random.shuffle(pairs)
+            # 采样触觉图像
         return pairs
 
     def __len__(self):
@@ -75,9 +94,15 @@ class TransMAEDataset(Dataset):
         img1_name, img2_name = self.pairs[idx]
         
         # 加载图片
-        img1 = Image.open(os.path.join(self.img_dir, img1_name)).convert('RGB')
-        img2 = Image.open(os.path.join(self.img_dir, img2_name)).convert('RGB')
-        
+        img1 = Image.open(os.path.join(self.rgb_img_dir, img1_name)).convert('RGB')
+        img2 = Image.open(os.path.join(self.rgb_img_dir, img2_name)).convert('RGB')
+
+        touch_img1 = Image.open(os.path.join(self.touch_img_dir, 'gel_' + img1_name)).convert('RGB')
+        touch_img2 = Image.open(os.path.join(self.touch_img_dir, 'gel_' + img2_name)).convert('RGB')
+        # 触觉图像转换
+        touch_img_mask1 = self.touch_transform(touch_img1)
+        touch_img_mask2 = self.touch_transform(touch_img2)
+        # TODO: 这里需要添加触觉图像的转换，生成触觉Mask
         # 保存高分辨率版本
         high_res_img1 = self.high_res_transform(img1)
         high_res_img2 = self.high_res_transform(img2)
@@ -90,9 +115,9 @@ class TransMAEDataset(Dataset):
         label1 = self._load_label(os.path.join(self.label_dir, self._remove_prefix(img1_name).replace('.png', '.txt')))
         label2 = self._load_label(os.path.join(self.label_dir, self._remove_prefix(img2_name).replace('.png', '.txt')))
         if self.is_eval:
-            return img1, img2, high_res_img1, high_res_img2, label1, label2, img1_name, img2_name
+            return img1, img2, high_res_img1, high_res_img2, touch_img_mask1, touch_img_mask2, label1, label2, img1_name, img2_name
         
-        return img1, img2, high_res_img1, high_res_img2, label1, label2
+        return img1, img2, high_res_img1, high_res_img2, touch_img_mask1, touch_img_mask2, label1, label2
 
     def _load_label(self, label_path):
         with open(label_path, 'r') as f:
