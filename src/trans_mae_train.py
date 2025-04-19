@@ -97,7 +97,7 @@ def get_args_parser():
                         help='epochs to warmup LR')
     parser.add_argument('--sigma', type=float, nargs=2, default=[0.5, 0.5],)
     parser.add_argument('--method', type=str, default='touch_mask', choices=['gaussian', 'touch_mask'], help='选择模型的训练方法')
-
+    parser.add_argument('--touch_img_template_path', type=str, default='')
     # Dataset parameters
     parser.add_argument('--data_path', default='./data', type=str)
     parser.add_argument('--pair_downsample', type=float, default=1.0)
