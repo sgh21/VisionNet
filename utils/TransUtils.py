@@ -415,7 +415,8 @@ class TouchWeightMapTransform:
             stats,
             centroids,
             filtered_labels,
-            min_rectangularity=self.min_rectangularity
+            min_rectangularity=self.min_rectangularity,
+            use_convex_hull=False
         )
         if self.M is None:
             # 如果没有提供仿射矩阵，则使用单位矩阵
@@ -1206,72 +1207,100 @@ def overlay_mask_on_image(
             overlay = overlay.astype(np.float32) / 255.0
             
         return overlay
+
+def convert_all_img(img_dir, output_dir, transform):
+    """
+    遍历目录中的所有图像，应用转换，并保存结果
+    
+    参数:
+        img_dir: 输入图像目录
+        output_dir: 输出图像目录
+        transform: 转换函数
+    """
+    # 尝试处理一张图像
+    from PIL import Image
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    # 首先获取所有图像文件
+    image_files = [f for f in os.listdir(img_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
+    
+    # 使用tqdm创建进度条
+    from tqdm import tqdm
+    for filename in tqdm(image_files, desc="处理图像", unit="张"):
+        img_path = os.path.join(img_dir, filename)
+        img = Image.open(img_path).convert('RGB')
+        transformed_img = transform(img)
+        output_path = os.path.join(output_dir, filename)
+        cv2.imwrite(output_path, transformed_img)
+    
+    print(f"✓ 已将 {len(image_files)} 张图像处理并保存到 {output_dir}")
+
 if __name__ == '__main__':
     # 测试代码
     img_path = '/home/sgh/data/WorkSpace/VisionNet/dataset/result/gel_image_template.png'
-    # img = crop_and_rotate(img_path)
     
-    # cv2.imwrite('gel_image_template.png', img)
-    # # 显示处理后的图像
-    # cv2.imshow('Cropped and Rotated Image', img)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
     from config import PARAMS
     M = PARAMS['m']
     transform = TouchWeightMapTransform(
         template_path=img_path,
         min_area=500,
-        min_rectangularity=0.6,
+        morph_operation='close_open',
+        min_rectangularity=0.55,
         M = M,
+        canvas_size=(560, 560),
+        to_tensor=False,
+        normalized=False,
     )
-    # 尝试处理一张图像
-    from PIL import Image
+    img_dir = "/home/sgh/data/WorkSpace/BTBInsertionV2/documents/train_data_0411/visionnet_train_0411/vision_touch/train/touch_images"
+    output_dir = "/home/sgh/data/WorkSpace/BTBInsertionV2/documents/train_data_0411/visionnet_train_0411/vision_touch/train/touch_images_mask"
+    convert_all_img(img_dir=img_dir, output_dir=output_dir, transform=transform)
+    # img_path = '/home/sgh/data/WorkSpace/BTBInsertionV2/documents/train_data_0411/original/gel_images_crop_00_4030P/gel_image_4030P_106.png'
+    # rgb_img_path = '/home/sgh/data/WorkSpace/BTBInsertionV2/documents/train_data_0411/original/image_crop_00_4030P/image_4030P_106.png'
+    # img = Image.open(img_path).convert('RGB')
+    # rgb_img = Image.open(rgb_img_path).convert('RGB')
+    # # 生成掩码
+    # mask = transform(img)
     
-    img_path = '/home/sgh/data/WorkSpace/BTBInsertionV2/documents/train_data_0411/original/gel_images_crop_00_4030P/gel_image_4030P_106.png'
-    rgb_img_path = '/home/sgh/data/WorkSpace/BTBInsertionV2/documents/train_data_0411/original/image_crop_00_4030P/image_4030P_106.png'
-    img = Image.open(img_path).convert('RGB')
-    rgb_img = Image.open(rgb_img_path).convert('RGB')
-    # 生成掩码
-    mask = transform(img)
+    # print(f"完整版掩码形状: {mask.shape}")
     
-    print(f"完整版掩码形状: {mask.shape}")
+    # # 将掩码叠加到RGB图像上
+    # overlay_img = overlay_mask_on_image(
+    #     image=rgb_img,
+    #     mask=mask,
+    #     alpha=0.8,  # 设置透明度
+    #     mask_color=(255, 0, 0),  # 蓝色掩码
+    #     to_tensor=False  # 返回NumPy数组
+    # )
     
-    # 将掩码叠加到RGB图像上
-    overlay_img = overlay_mask_on_image(
-        image=rgb_img,
-        mask=mask,
-        alpha=0.8,  # 设置透明度
-        mask_color=(255, 0, 0),  # 蓝色掩码
-        to_tensor=False  # 返回NumPy数组
-    )
+    # # 可视化 (需要matplotlib)
+    # import matplotlib.pyplot as plt
     
-    # 可视化 (需要matplotlib)
-    import matplotlib.pyplot as plt
+    # plt.figure(figsize=(16, 4))
     
-    plt.figure(figsize=(16, 4))
+    # plt.subplot(141)
+    # plt.imshow(img)
+    # plt.title("Tactile image")
+    # plt.axis('off')
     
-    plt.subplot(141)
-    plt.imshow(img)
-    plt.title("Tactile image")
-    plt.axis('off')
+    # plt.subplot(142)
+    # plt.imshow(rgb_img)
+    # plt.title("RGB image")
+    # plt.axis('off')
     
-    plt.subplot(142)
-    plt.imshow(rgb_img)
-    plt.title("RGB image")
-    plt.axis('off')
+    # plt.subplot(143)
+    # plt.imshow(mask.squeeze(), cmap='gray')
+    # plt.title("Tactile mask")
+    # plt.axis('off')
     
-    plt.subplot(143)
-    plt.imshow(mask.squeeze(), cmap='gray')
-    plt.title("Tactile mask")
-    plt.axis('off')
+    # plt.subplot(144)
+    # plt.imshow(overlay_img)
+    # plt.title("Overlay image")
+    # plt.axis('off')
     
-    plt.subplot(144)
-    plt.imshow(overlay_img)
-    plt.title("Overlay image")
-    plt.axis('off')
-    
-    plt.tight_layout()
-    plt.show()
+    # plt.tight_layout()
+    # plt.show()
     
     # 保存叠加图像
     # overlay_img_pil = Image.fromarray(overlay_img)

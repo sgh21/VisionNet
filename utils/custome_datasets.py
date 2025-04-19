@@ -22,16 +22,18 @@ class TransMAEDataset(Dataset):
         self.high_res_size = config.high_res_size
 
         # TODO: 根据mask生成权重图，将触觉对齐到RGB图像
-        self.touch_transform = TouchWeightMapTransform(
-            template_path = self.touch_img_template_path,
-            min_area = 500,
-            min_rectangularity= 0.6, 
-            M = M,
-            canvas_size= (self.high_res_size, self.high_res_size),
-            to_tensor = True,
-            normalized = True,
-        )
-
+        # self.touch_transform = TouchWeightMapTransform(
+        #     template_path = self.touch_img_template_path,
+        #     min_area = 500,
+        #     min_rectangularity= 0.6, 
+        #     M = M,
+        #     canvas_size= (self.high_res_size, self.high_res_size),
+        #     to_tensor = True,
+        #     normalized = True,
+        # )
+        self.touch_transform = transform.Compose([
+            transforms.ToTensor(),
+        ])
         # 构建高分辨率转换
         self.high_res_transform = transforms.Compose([
             transforms.Resize((self.high_res_size, self.high_res_size),interpolation=transforms.InterpolationMode.BICUBIC),

@@ -929,7 +929,7 @@ def main():
     #  形态学操作（开运算和闭运算）
     processed_diff = morphological_operations(
         binary_diff, 
-        operation='close_open', 
+        operation='open_close', 
         kernel_size=3, 
         iterations_open=1, 
         iterations_close=1,
