@@ -495,7 +495,7 @@ class TransMAE(nn.Module):
             batch_weight_map = self.forwrd_weights_map(shape, device, method=method, **kwargs)
             # 应用变换到权重图
             transformed_weight_map = self.forward_transfer(batch_weight_map, params, CXCY=CXCY)
-        
+        # TODO: mask不平滑，应该对边缘，边框区域，给与更高权重，边界给与部分权重
         elif method == 'touch_mask':
             touch_img_mask1 = kwargs.get('touch_img_mask1', None) # [B, 1, H, W]
             touch_img_mask2 = kwargs.get('touch_img_mask2', None) # [B, 1, H, W]

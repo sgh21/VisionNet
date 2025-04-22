@@ -1,0 +1,6 @@
+数据集: /home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/calib_data/
+高分辨率图像大小: 560x560
+旋转中心: (-0.0102543, -0.0334525)
+最优内参: fx=0.023860, fy=0.023987, flag=-1.0
+最小损失值: 0.099166
+时间戳: 2025-04-22 22:05:08

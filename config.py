@@ -16,8 +16,8 @@ ROBOT_INIT_POSE = [-106,-548,250,-180,0,90]
 # 相机内参 rx = focal_length / pixel_width
 # 相机内参 ry = focal_length / pixel_height
 # INTRINSIC = [-0.024175,-0.024225]
-INTRINSIC = [-0.0206,-0.0207]
-# INTRINSIC = [-0.023905,-0.024048]
+# INTRINSIC = [-0.0206,-0.0207]
+INTRINSIC = [0.023860, 0.023987, -1.0]
 CXCY = [-0.0102543, -0.0334525]  # 相机坐标系下的中心点坐标 560
 M = np.float32([
                 [1.3391, 0, 12.5791],

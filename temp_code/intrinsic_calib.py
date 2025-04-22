@@ -504,10 +504,10 @@ def load_and_prepare_dataset(config, transform):
     
     # 使用DataLoader加载更高效
     from torch.utils.data import DataLoader
-    loader = DataLoader(dataset, batch_size=64, shuffle=False, num_workers=4)
+    loader = DataLoader(dataset, batch_size=16, shuffle=False, num_workers=4)
     
     for batch in tqdm(loader, desc="加载数据集"):
-        img1, img2, high_res_img1, high_res_img2, label1, label2 = batch
+        img1, img2, high_res_img1, high_res_img2, mask1, mask2, label1, label2 = batch
         
         # 使用high_res图像以获得更好的精度
         images1.append(high_res_img1)
@@ -532,18 +532,18 @@ def main():
     parser.add_argument('--high_res_size', type=int, default=560, help='高分辨率图像大小')
     parser.add_argument('--input_size', type=int, default=224, help='输入图像大小')
     parser.add_argument('--use_fix_template', action='store_true', help='使用固定模板图像')
-    parser.add_argument('--fx_min', type=float, default=0.018, help='fx最小值')
-    parser.add_argument('--fx_max', type=float, default=0.022, help='fx最大值')
-    parser.add_argument('--fx_steps', type=int, default=8, help='fx搜索步数')
-    parser.add_argument('--fy_min', type=float, default=0.018, help='fy最小值')
-    parser.add_argument('--fy_max', type=float, default=0.022, help='fy最大值')
-    parser.add_argument('--fy_steps', type=int, default=8, help='fy搜索步数')
+    parser.add_argument('--fx_min', type=float, default=0.0237, help='fx最小值')
+    parser.add_argument('--fx_max', type=float, default=0.0242, help='fx最大值')
+    parser.add_argument('--fx_steps', type=int, default=48, help='fx搜索步数')
+    parser.add_argument('--fy_min', type=float, default=0.0237, help='fy最小值')
+    parser.add_argument('--fy_max', type=float, default=0.0242, help='fy最大值')
+    parser.add_argument('--fy_steps', type=int, default=48, help='fy搜索步数')
     parser.add_argument('--fine_tune', action='store_true', help='是否进行精细优化')
     parser.add_argument('--rot_center_x', type=float, default=-0.0102543, help='旋转中心x坐标')
     parser.add_argument('--rot_center_y', type=float, default=-0.0334525, help='旋转中心y坐标')
     parser.add_argument('--n_jobs', type=int, default=None, help='并行处理的作业数')
     parser.add_argument('--cache', action='store_true', help='是否缓存计算结果')
-    parser.add_argument('--pair_downsample', type=float, default=0.1, help='图像对下采样比例')
+    parser.add_argument('--pair_downsample', type=float, default=0.35, help='图像对下采样比例')
     args = parser.parse_args()
     
     # 设置配置

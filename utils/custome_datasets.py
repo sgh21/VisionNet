@@ -15,8 +15,8 @@ class TransMAEDataset(Dataset):
         self.is_eval = is_eval
         root = os.path.join(config.data_path, 'train' if is_train else 'val')
         self.rgb_img_dir = os.path.join(root, 'rgb_images')
-        self.touch_img_dir = os.path.join(root, 'touch_images')
-        self.touch_img_template_path = os.path.join(self.touch_img_dir, config.touch_img_template_path)
+        self.touch_img_dir = os.path.join(root, 'touch_images_mask_process')
+        # self.touch_img_template_path = os.path.join(self.touch_img_dir, config.touch_img_template_path)
         self.label_dir = os.path.join(root, 'labels')
         self.sample_ratio = config.pair_downsample
         self.high_res_size = config.high_res_size
@@ -31,7 +31,7 @@ class TransMAEDataset(Dataset):
         #     to_tensor = True,
         #     normalized = True,
         # )
-        self.touch_transform = transform.Compose([
+        self.touch_transform = transforms.Compose([
             transforms.ToTensor(),
         ])
         # 构建高分辨率转换
