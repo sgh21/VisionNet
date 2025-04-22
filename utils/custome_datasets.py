@@ -15,22 +15,12 @@ class TransMAEDataset(Dataset):
         self.is_eval = is_eval
         root = os.path.join(config.data_path, 'train' if is_train else 'val')
         self.rgb_img_dir = os.path.join(root, 'rgb_images')
-        self.touch_img_dir = os.path.join(root, 'touch_images_mask_process')
-        # self.touch_img_template_path = os.path.join(self.touch_img_dir, config.touch_img_template_path)
+        self.touch_img_dir = os.path.join(root, 'touch_images')
         self.label_dir = os.path.join(root, 'labels')
         self.sample_ratio = config.pair_downsample
         self.high_res_size = config.high_res_size
 
         # TODO: 根据mask生成权重图，将触觉对齐到RGB图像
-        # self.touch_transform = TouchWeightMapTransform(
-        #     template_path = self.touch_img_template_path,
-        #     min_area = 500,
-        #     min_rectangularity= 0.6, 
-        #     M = M,
-        #     canvas_size= (self.high_res_size, self.high_res_size),
-        #     to_tensor = True,
-        #     normalized = True,
-        # )
         self.touch_transform = transforms.Compose([
             transforms.ToTensor(),
         ])
