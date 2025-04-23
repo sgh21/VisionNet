@@ -6,8 +6,8 @@ from torch.utils.data import Dataset
 import random
 from utils.VisionUtils import add_radial_noise
 import torchvision.transforms as transforms
-from utils.TransUtils import TouchWeightMapTransform
-from config import M
+from utils.TransUtils import TerraceMapGenerator
+from config import EXPANSION_SIZE
 
 class TransMAEDataset(Dataset):
     def __init__(self, config, is_train=True, transform=None, is_eval = False, use_fix_template = False):
@@ -15,12 +15,18 @@ class TransMAEDataset(Dataset):
         self.is_eval = is_eval
         root = os.path.join(config.data_path, 'train' if is_train else 'val')
         self.rgb_img_dir = os.path.join(root, 'rgb_images')
-        self.touch_img_dir = os.path.join(root, 'touch_images')
+        self.touch_img_dir = os.path.join(root, 'touch_masks')
         self.label_dir = os.path.join(root, 'labels')
         self.sample_ratio = config.pair_downsample
         self.high_res_size = config.high_res_size
 
         # TODO: 根据mask生成权重图，将触觉对齐到RGB图像
+        self.terrace_map_generator = TerraceMapGenerator(
+            intensity_scaling = config.intensity_scaling,
+            edge_enhancement = config.edge_enhancement,
+            expansion_size = EXPANSION_SIZE,
+        )
+
         self.touch_transform = transforms.Compose([
             transforms.ToTensor(),
         ])
@@ -89,12 +95,15 @@ class TransMAEDataset(Dataset):
         img1 = Image.open(os.path.join(self.rgb_img_dir, img1_name)).convert('RGB')
         img2 = Image.open(os.path.join(self.rgb_img_dir, img2_name)).convert('RGB')
 
-        touch_img1 = Image.open(os.path.join(self.touch_img_dir, 'gel_' + img1_name)).convert('RGB')
-        touch_img2 = Image.open(os.path.join(self.touch_img_dir, 'gel_' + img2_name)).convert('RGB')
+        touch_mask1 = Image.open(os.path.join(self.touch_img_dir, 'gel_' + img1_name)).convert('RGB')
+        touch_mask2 = Image.open(os.path.join(self.touch_img_dir, 'gel_' + img2_name)).convert('RGB')
         # 触觉图像转换
-        touch_img_mask1 = self.touch_transform(touch_img1)
-        touch_img_mask2 = self.touch_transform(touch_img2)
-        # TODO: 这里需要添加触觉图像的转换，生成触觉Mask
+        serial = img1_name.split('_')[-2]
+        terrace_map1 = self.terrace_map_generator(touch_mask1, serial = serial)
+        terrace_map2 = self.terrace_map_generator(touch_mask2, serial = serial)
+        touch_img_mask1 = self.touch_transform(terrace_map1)
+        touch_img_mask2 = self.touch_transform(terrace_map2)
+        
         # 保存高分辨率版本
         high_res_img1 = self.high_res_transform(img1)
         high_res_img2 = self.high_res_transform(img2)

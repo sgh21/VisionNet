@@ -382,6 +382,137 @@ def morphological_operations(image, operation='open_close', kernel_size=3, itera
         plt.show()
     
     return processed_image
+def compute_gradient_map(gray_image, method='sobel', ksize=3, normalize=True, visualize=False, save_path=None):
+    """
+    计算灰度图像的梯度图
+    
+    参数:
+        gray_image (numpy.ndarray): 输入灰度图像
+        method (str): 梯度计算方法，可选:
+            - 'sobel': Sobel算子 (默认)
+            - 'scharr': Scharr算子 (边缘更敏感)
+            - 'prewitt': Prewitt算子
+            - 'roberts': Roberts交叉算子
+            - 'laplacian': 拉普拉斯算子 (二阶导数)
+        ksize (int): 核大小 (Sobel, Prewitt 和 Laplacian)，默认为3
+        normalize (bool): 是否将梯度图归一化到0-255范围
+        visualize (bool): 是否可视化梯度图
+        save_path (str): 可视化结果保存路径，若为None则不保存
+        
+    返回:
+        numpy.ndarray: 梯度图 (边缘强度图)
+    """
+    # 确保输入为灰度图
+    if len(gray_image.shape) > 2:
+        gray_image = cv2.cvtColor(gray_image, cv2.COLOR_RGB2GRAY)
+    
+    # 创建输出图像副本，避免修改原图
+    img = gray_image.copy().astype(np.float32)
+    
+    # 选择梯度计算方法
+    if method.lower() == 'sobel':
+        # Sobel算子: 分别计算x和y方向梯度
+        grad_x = cv2.Sobel(img, cv2.CV_32F, 1, 0, ksize=ksize)
+        grad_y = cv2.Sobel(img, cv2.CV_32F, 0, 1, ksize=ksize)
+        
+        # 计算梯度幅值
+        grad_mag = cv2.magnitude(grad_x, grad_y)
+        
+        # 计算梯度方向 (弧度)
+        grad_dir = cv2.phase(grad_x, grad_y)
+    
+    elif method.lower() == 'scharr':
+        # Scharr算子: 边缘更敏感的Sobel变体
+        grad_x = cv2.Scharr(img, cv2.CV_32F, 1, 0)
+        grad_y = cv2.Scharr(img, cv2.CV_32F, 0, 1)
+        
+        # 计算梯度幅值
+        grad_mag = cv2.magnitude(grad_x, grad_y)
+        
+        # 计算梯度方向
+        grad_dir = cv2.phase(grad_x, grad_y)
+    
+    elif method.lower() == 'prewitt':
+        # 自定义Prewitt算子
+        kernel_x = np.array([[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], dtype=np.float32)
+        kernel_y = np.array([[-1, -1, -1], [0, 0, 0], [1, 1, 1]], dtype=np.float32)
+        
+        grad_x = cv2.filter2D(img, -1, kernel_x)
+        grad_y = cv2.filter2D(img, -1, kernel_y)
+        
+        # 计算梯度幅值
+        grad_mag = cv2.magnitude(grad_x, grad_y)
+        
+        # 计算梯度方向
+        grad_dir = cv2.phase(grad_x, grad_y)
+    
+    elif method.lower() == 'roberts':
+        # 自定义Roberts交叉算子
+        kernel_x = np.array([[1, 0], [0, -1]], dtype=np.float32)
+        kernel_y = np.array([[0, 1], [-1, 0]], dtype=np.float32)
+        
+        grad_x = cv2.filter2D(img, -1, kernel_x)
+        grad_y = cv2.filter2D(img, -1, kernel_y)
+        
+        # 计算梯度幅值
+        grad_mag = cv2.magnitude(grad_x, grad_y)
+        
+        # 计算梯度方向
+        grad_dir = cv2.phase(grad_x, grad_y)
+    
+    elif method.lower() == 'laplacian':
+        # 拉普拉斯算子: 计算二阶导数
+        grad_mag = cv2.Laplacian(img, cv2.CV_32F, ksize=ksize)
+        
+        # 取绝对值 (拉普拉斯结果可能为负)
+        grad_mag = np.abs(grad_mag)
+        
+        # 拉普拉斯算子没有方向信息
+        grad_dir = None
+    
+    else:
+        raise ValueError(f"不支持的梯度计算方法: {method}, 支持的方法有: sobel, scharr, prewitt, roberts, laplacian")
+    
+    # 归一化梯度幅值到0-255范围
+    if normalize:
+        # 避免除以零
+        if np.max(grad_mag) > 0:
+            grad_mag = 255 * (grad_mag / np.max(grad_mag))
+        grad_mag = grad_mag.astype(np.uint8)
+    
+    # 可视化结果
+    if visualize:
+        plt.figure(figsize=(15, 8))
+        
+        # 显示原始灰度图
+        plt.subplot(1, 3, 1)
+        plt.imshow(gray_image, cmap='gray')
+        plt.title('原始灰度图')
+        plt.axis('off')
+        
+        # 显示梯度幅值图
+        plt.subplot(1, 3, 2)
+        plt.imshow(grad_mag, cmap='viridis')
+        plt.title(f'{method.capitalize()} 梯度幅值')
+        plt.axis('off')
+        
+        # 显示梯度方向图 (如果有)
+        if grad_dir is not None:
+            plt.subplot(1, 3, 3)
+            plt.imshow(grad_dir, cmap='hsv')
+            plt.title('梯度方向')
+            plt.axis('off')
+        
+        plt.tight_layout()
+        
+        # 保存结果
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            print(f"梯度图结果已保存至: {save_path}")
+        
+        plt.show()
+    
+    return grad_mag
 
 def detect_edges(image, low_threshold=50, high_threshold=150, aperture_size=3):
     """
@@ -907,7 +1038,8 @@ def main():
     
     # 应用NLM滤波
     filtered_diff = apply_nlm_filter(diff_map, h=4)
-    
+    # 计算差异图的梯度图
+    grad_map = compute_gradient_map(filtered_diff, method='sobel', ksize=3, visualize=False)
     # 使用直方图均衡化增强对比度
     _, equalization_diff = adaptive_range_enhancement(filtered_diff, percentile_low=0, percentile_high=100, visualize=False)
     
@@ -916,8 +1048,8 @@ def main():
     ret, binary_diff = binary_threshold(equalization_diff, type='adaptive')
     
     # 可视化初始结果
-    images_list1 = [img_template, img, diff_map, filtered_diff, equalization_diff, binary_diff]
-    titles_list1 = ['template', 'dst', 'diff_map', 'NLM-filtered', 'equalization_diff', 'binary_diff' ]
+    images_list1 = [img_template, img, diff_map, filtered_diff,  binary_diff, grad_map]
+    titles_list1 = ['template', 'dst', 'diff_map', 'NLM-filtered',  'binary_diff', 'grad_map' ]
 
     visualize_images(
         images_list1, 

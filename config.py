@@ -23,6 +23,17 @@ M = np.float32([
                 [1.3391, 0, 12.5791],
                 [0, 1.3391, -21.2115]
             ])
+
+EXPANSION_SIZE = {
+    '3524P': [262.2, 158.5],
+    '3530P': [304.4, 162.42],
+    '3534P': [334.1, 165.2],
+    '3540P': [377.3, 159.3],
+    '3560P': [640.5, 190.1],
+    '4024P': [300.3, 156.8],
+    '4030P': [301.4, 159.8],
+    '4040P': [431.9-5, 181.2],
+}
 # CXCY = [-0.0090657, -0.0335761]  # 相机坐标系下的中心点坐标 672
 # 连接器型号枚举
 SERIALS = ['4024P','4030P','4034P','4040P']
@@ -43,6 +54,7 @@ PARAMS = {
   'intrinsic': INTRINSIC,
   'cxcy': CXCY,
   'm': M,
+  'expansion_size': EXPANSION_SIZE,
   'serials' : SERIALS,
   'hsv_lower_bound': HSV_LOWER_BOUND,
   'hsv_upper_bound': HSV_UPPER_BOUND
