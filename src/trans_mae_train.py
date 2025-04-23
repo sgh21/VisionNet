@@ -81,6 +81,8 @@ def get_args_parser():
     # 添加beta参数，控制pred_loss和trans_diff_loss的权重
     parser.add_argument('--beta', type=float, default=1.0,
                         help='权重参数，控制pred_loss和trans_diff_loss*beta的平衡')
+    parser.add_argument('--intensity_scaling', type=list, default=[0.1, 0.6, 0.8, 1.0])
+    parser.add_argument('--edge_enhancement', type=float, default=1.5)
     
     # Optimizer parameters
     parser.add_argument('--weight_decay', type=float, default=0.05,

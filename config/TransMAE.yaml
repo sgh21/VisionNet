@@ -28,6 +28,8 @@ sigma: [0.6, 0.3]
 method: touch_mask
 touch_img_template_path: ./dataset/train_data_0312/gel_image_template.png # 需要修改
 high_res_size: 560
+intensity_scaling: [0.1, 0.6, 0.8, 1.0]
+edge_enhancement: 1.5
 # noise_ratio: 0.3
 # noise_level: 0.5
 
