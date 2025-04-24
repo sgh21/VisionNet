@@ -1122,16 +1122,16 @@ class SSIM(nn.Module):
             S = (A1 * A2) / D
         
         # 如需裁剪边缘，与scipy行为匹配
-        if pad > 0:
-            S_valid = S[:, :, pad:-pad, pad:-pad]
-        else:
-            S_valid = S
+        # if pad > 0:
+        #     S_valid = S[:, :, pad:-pad, pad:-pad]
+        # else:
+        #     S_valid = S
         
         # 计算平均SSIM
-        mssim = S_valid.mean()
-        
+        mssim = S.mean()
+        # print(S.shape)
         if full:
-            return mssim, S_valid
+            return mssim, S
         else:
             return mssim
 

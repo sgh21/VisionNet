@@ -30,6 +30,7 @@ touch_img_template_path: ./dataset/train_data_0312/gel_image_template.png # éœ€è
 high_res_size: 560
 intensity_scaling: [0.1, 0.6, 0.8, 1.0]
 edge_enhancement: 1.5
+illumination_alignment: False
 # noise_ratio: 0.3
 # noise_level: 0.5
 

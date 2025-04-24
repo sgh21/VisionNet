@@ -83,6 +83,7 @@ def get_args_parser():
                         help='权重参数，控制pred_loss和trans_diff_loss*beta的平衡')
     parser.add_argument('--intensity_scaling', type=list, default=[0.1, 0.6, 0.8, 1.0])
     parser.add_argument('--edge_enhancement', type=float, default=1.5)
+    parser.add_argument('--illumination_alignment', type=bool, default=False)
     
     # Optimizer parameters
     parser.add_argument('--weight_decay', type=float, default=0.05,
@@ -648,6 +649,7 @@ def main(args):
         feature_dim=args.feature_dim,
         pretrained_path=args.mae_pretrained,
         qkv_bias=args.qkv_bias,
+        illumination_alignment=args.illumination_alignment,
     )
 
     model.to(device)

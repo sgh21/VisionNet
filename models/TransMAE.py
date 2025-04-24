@@ -188,12 +188,13 @@ class TransMAE(nn.Module):
         drop_rate=0.1,
         qkv_bias=False,
         pretrained_path=None,
+        illumination_alignment=False,
         window_size=4,
         kernel_size=8,
         keep_variance=True,
     ):
         super().__init__()
-        
+    
         # MAE Encoder
         self.encoder = MAEEncoder(
             img_size=img_size,
@@ -223,13 +224,14 @@ class TransMAE(nn.Module):
             nn.Linear(256, feature_dim),
             nn.Tanh()
         )
-
-        self.illumination_alignment = IlluminationAlignment(
-            window_size=window_size, 
-            kernel_size=kernel_size, 
-            keep_variance=keep_variance
-            )
-        
+        self.illumination_alignment = None
+        if illumination_alignment:
+            self.illumination_alignment = IlluminationAlignment(
+                window_size=window_size, 
+                kernel_size=kernel_size, 
+                keep_variance=keep_variance
+                )
+            
         self.initialize_weights() 
 
     def initialize_weights(self):
@@ -540,11 +542,12 @@ class TransMAE(nn.Module):
         if high_res_x1 is not None and high_res_x2 is not None:
             # 应用相同的变换参数到高分辨率图像
             high_res_x2_trans = self.forward_transfer(high_res_x2, pred, CXCY=CXCY)
-            high_res_x2_trans_equal = self.illumination_alignment(high_res_x2_trans, high_res_x1)
+            if self.illumination_alignment is not None:
+                high_res_x2_trans = self.illumination_alignment(high_res_x2_trans, high_res_x1)
             # 在高分辨率上计算损失
             trans_diff_loss = self.forward_loss(
                 high_res_x1, 
-                high_res_x2_trans_equal, 
+                high_res_x2_trans, 
                 params=pred, 
                 CXCY=CXCY,
                 method=method,
