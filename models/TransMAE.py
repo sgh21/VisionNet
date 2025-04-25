@@ -3,7 +3,7 @@ import torch.nn as nn
 from functools import partial
 from timm.models.vision_transformer import PatchEmbed, Block
 from utils.pos_embed import get_2d_sincos_pos_embed
-from models.Footshone import MAEEncoder, CrossAttention
+from models.Footshone import MAEEncoder, CrossAttention, MaskPatchPooling
 from extensions.chamfer_dist import *
 from utils.TransUtils import PatchBasedIlluminationAlignment as IlluminationAlignment
 
@@ -176,6 +176,7 @@ class TransMAE(nn.Module):
     def __init__(
         self,
         img_size=224,
+        mask_size=560,
         patch_size=16,
         in_chans=3, 
         embed_dim=1024,
@@ -192,8 +193,10 @@ class TransMAE(nn.Module):
         illumination_alignment=False,
         chamfer_dist=False,
         chamfer_dist_type='L2',
-        window_size=4,
-        kernel_size=8,
+        use_mask_weight=False,
+        pool_mode='mean',
+        window_size=560,
+        kernel_size=560,
         keep_variance=True,
     ):
         super().__init__()
@@ -211,7 +214,14 @@ class TransMAE(nn.Module):
             pretrained_path=pretrained_path,
             remove_class_token=remove_class_token
         )
-        
+        self.use_mask_weight = use_mask_weight
+        if self.use_mask_weight:
+            mask_ratio = mask_size / img_size
+            self.mask_patch_pooling = MaskPatchPooling(
+                img_size=mask_size,
+                patch_size=int(patch_size*mask_ratio),
+                pool_mode=pool_mode
+            )
         # 交叉注意力模块
         # !: 需要检查注意力模块儿是对谁进行注意力计算的
         self.cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
@@ -264,7 +274,7 @@ class TransMAE(nn.Module):
                 if m.bias is not None:
                     torch.nn.init.constant_(m.bias, 0)
 
-    def forward_pred(self, x1, x2, mask_ratio=0.75, scale_factors=None):
+    def forward_pred(self, x1, x2, mask1=None, mask2=None, mask_ratio=0.75, scale_factors=None):
         """
         预测变换参数
         
@@ -287,6 +297,14 @@ class TransMAE(nn.Module):
         feat2, _mask2, _id_restore2, _ids_keep2 = self.encoder(x2, mask_ratio, keep_mask)  # [B, N, C]
         
         assert torch.sum(_mask1-_mask2) < 1e-6
+
+        if self.use_mask_weight and mask1 is not None and mask2 is not None:
+            print("Using mask weight")
+            # 使用掩码权重
+            mask_weight1 = self.mask_patch_pooling(feat1, mask1)
+            mask_weight2 = self.mask_patch_pooling(feat2, mask2)
+            feat1 = feat1 * mask_weight1
+            feat2 = feat2 * mask_weight2
 
         # Cross attention 互相算注意力更有效
         # !: 根据官方的实现，在交叉注意力前加入了LayerNorm
@@ -553,6 +571,7 @@ class TransMAE(nn.Module):
     def forward(self, x1, x2, 
                 high_res_x1=None, high_res_x2=None, 
                 sample_contourl1=None, sample_contourl2=None,
+                mask1=None, mask2=None,
                 mask_ratio=0.75, CXCY=None, 
                 method='gaussian', **kwargs):
         """
@@ -563,7 +582,7 @@ class TransMAE(nn.Module):
             high_res_x1, high_res_x2: 高分辨率输入图像 (可选，用于高精度损失计算)
         """
         # 从低分辨率图像预测变换参数
-        pred = self.forward_pred(x1, x2, mask_ratio)
+        pred = self.forward_pred(x1, x2, mask1=mask1, mask2=mask2, mask_ratio=mask_ratio)
         # 应用变换到低分辨率图像（用于可视化）
         x2_trans = self.forward_transfer(x2, pred, CXCY=CXCY)
         # 计算损失 - 优先使用高分辨率图像
