@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from timm.models.layers import to_2tuple
 from timm.models.vision_transformer import PatchEmbed, Block
 from utils.pos_embed import get_2d_sincos_pos_embed
 
@@ -419,3 +420,86 @@ class CrossAttention(nn.Module):
             value=x2     # (B, N, C)
         )
         return out
+
+
+class MaskPatchPooling(nn.Module):
+    """
+    将掩码图像按patch_size划分并计算每个patch的均值
+    
+    Args:
+        img_size (int): 输入图像大小
+        patch_size (int): patch的大小
+        pool_mode (str): 池化模式，'mean'或'max'，默认为'mean'
+    
+    Input:
+        mask: 形状为(B, 1, H, W)的掩码图像
+        
+    Output:
+        patch_means: 形状为(B, N, 1)的张量，其中N是patch的数量，每个元素表示一个patch的均值
+    """
+    def __init__(self, img_size=224, patch_size=16, pool_mode='mean'):
+        super().__init__()
+        img_size = to_2tuple(img_size)
+        patch_size = to_2tuple(patch_size)
+        self.img_size = img_size
+        self.patch_size = patch_size
+        self.num_patches = (img_size[1] // patch_size[1]) * (img_size[0] // patch_size[0])
+        self.pool_mode = pool_mode
+        
+        # 使用卷积层实现效率更高的池化操作
+        if pool_mode == 'mean':
+            # 平均池化: 使用卷积，权重全为1/(patch_size^2)
+            self.pool = nn.AvgPool2d(kernel_size=patch_size, stride=patch_size)
+        elif pool_mode == 'max':
+            # 最大池化
+            self.pool = nn.MaxPool2d(kernel_size=patch_size, stride=patch_size)
+        else:
+            raise ValueError(f"不支持的池化模式: {pool_mode}, 请使用 'mean' 或 'max'")
+    
+    def forward(self, mask):
+        # mask: (B, 1, H, W)
+        B, C, H, W = mask.shape
+        assert C == 1, "输入必须是单通道掩码图像"
+        
+        # 验证图像尺寸
+        assert H == self.img_size[0] and W == self.img_size[1], \
+            f"输入掩码尺寸({H}*{W})与模型设置({self.img_size[0]}*{self.img_size[1]})不匹配"
+        
+        # 应用池化操作，计算每个patch的均值或最大值
+        # 输出形状: (B, 1, H//patch_size, W//patch_size)
+        pooled = self.pool(mask)
+        
+        # 展平并转置为(B, N, 1)格式
+        # N = (H//patch_size) * (W//patch_size)
+        pooled = pooled.flatten(2).transpose(1, 2)
+        
+        return pooled
+
+# 使用示例
+if __name__ == "__main__":
+    # 创建一个示例批次
+    batch_size = 2
+    img_size = 560
+    patch_size = int(16*2.5)
+    
+    # 创建随机掩码图像
+    mask = torch.randint(0, 2, (batch_size, 1, img_size, img_size)).float()
+    
+    # 初始化平均池化模型
+    mean_pooler = MaskPatchPooling(img_size, patch_size, pool_mode='mean')
+    
+    # 初始化最大池化模型
+    max_pooler = MaskPatchPooling(img_size, patch_size, pool_mode='max')
+    
+    # 计算patch均值
+    patch_means = mean_pooler(mask)
+    patch_maxes = max_pooler(mask)
+    
+    # 验证输出形状
+    num_patches = (img_size // patch_size) ** 2
+    expected_shape = (batch_size, num_patches, 1)
+    
+    print(f"输入形状: {mask.shape}")
+    print(f"均值池化输出形状: {patch_means.shape}")
+    print(f"最大池化输出形状: {patch_maxes.shape}")
+    print(f"预期形状: {expected_shape}")

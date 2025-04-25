@@ -9,6 +9,115 @@ import torchvision.transforms as transforms
 from utils.TransUtils import TerraceMapGenerator
 from config import EXPANSION_SIZE
 
+class LocalMAEDataset(Dataset):
+    def __init__(self, config, is_train=True, transform=None, is_eval = False, use_fix_template = False):
+        self.is_train = is_train
+        self.is_eval = is_eval
+        root = os.path.join(config.data_path, 'train' if is_train else 'val')
+        self.rgb_img_dir = os.path.join(root, 'rgb_images')
+        self.touch_img_dir = os.path.join(root, 'touch_masks')
+        self.label_dir = os.path.join(root, 'labels')
+        self.sample_ratio = config.pair_downsample
+        self.high_res_size = config.high_res_size
+
+        # TODO: 根据mask生成权重图，将触觉对齐到RGB图像
+        self.terrace_map_generator = TerraceMapGenerator(
+            intensity_scaling = config.intensity_scaling,
+            edge_enhancement = config.edge_enhancement,
+            sample_size= config.sample_size,
+            expansion_size = EXPANSION_SIZE,
+        )
+
+        self.touch_transform = transforms.Compose([
+            transforms.ToTensor(),
+        ])
+        
+        # 按类别组织图片
+        self.class_to_imgs = {}
+        for img_file in os.listdir(self.rgb_img_dir):
+            class_name = img_file.split('_')[-2]  # 根据文件名获取类别
+            if class_name not in self.class_to_imgs:
+                self.class_to_imgs[class_name] = []
+            self.class_to_imgs[class_name].append(img_file)
+            
+        # 生成所有可能的图片对
+        self.pairs = self._generate_pairs(use_fix_template = use_fix_template)
+        self.transform = transform
+
+    def _generate_pairs(self, use_fix_template = False):
+        """生成训练/验证图片对"""
+        pairs = []
+        for class_name, imgs in self.class_to_imgs.items():
+
+            if use_fix_template:
+                # : 使用第0张图片作为固定模板
+                # *: use gel_image as template when train touch model
+                img_template = 'image_'+class_name+'_0.png'
+                index0 = int(img_template.split('_')[-1].split('.')[0])
+                assert index0 == 0, 'The first image should be the template'
+                class_pairs = [(imgs[i], img_template) 
+                          for i in range(0,len(imgs))]
+            else:
+                class_pairs = [(imgs[i], imgs[j]) 
+                            for i in range(len(imgs))
+                            for j in range(i+1, len(imgs))]
+            
+            
+            if self.is_train or self.is_eval:  # 训练集下采样
+                num_samples = int(len(class_pairs) * self.sample_ratio)
+                if num_samples > 0:
+                    class_pairs = random.sample(class_pairs, num_samples)
+            else: # 测试集按固定比例采样
+                num_samples = int(len(class_pairs) * 0.1)
+                if num_samples > 0:
+                    class_pairs = random.sample(class_pairs, num_samples)
+            pairs.extend(class_pairs)
+            # 随机打散
+            random.shuffle(pairs)
+            # 采样触觉图像
+        return pairs
+
+    def __len__(self):
+        return len(self.pairs)
+    def _remove_prefix(self,filename):
+        if filename.startswith('gel_'):
+            return filename[4:]
+        return filename
+    
+    def __getitem__(self, idx):
+        img1_name, img2_name = self.pairs[idx]
+        
+        # 加载图片
+        img1 = Image.open(os.path.join(self.rgb_img_dir, img1_name)).convert('RGB')
+        img2 = Image.open(os.path.join(self.rgb_img_dir, img2_name)).convert('RGB')
+
+        touch_mask1 = Image.open(os.path.join(self.touch_img_dir, 'gel_' + img1_name)).convert('RGB')
+        touch_mask2 = Image.open(os.path.join(self.touch_img_dir, 'gel_' + img2_name)).convert('RGB')
+        # 触觉图像转换
+        serial = img1_name.split('_')[-2]
+        # TODO: 添加contour误差计算方法
+        terrace_map1, _ = self.terrace_map_generator(touch_mask1, serial = serial)
+        terrace_map2, _ = self.terrace_map_generator(touch_mask2, serial = serial)
+        touch_img_mask1 = self.touch_transform(terrace_map1)
+        touch_img_mask2 = self.touch_transform(terrace_map2)
+        
+        if self.transform:
+            img1 = self.transform(img1)
+            img2 = self.transform(img2)
+        
+        # 加载标签
+        label1 = self._load_label(os.path.join(self.label_dir, self._remove_prefix(img1_name).replace('.png', '.txt')))
+        label2 = self._load_label(os.path.join(self.label_dir, self._remove_prefix(img2_name).replace('.png', '.txt')))
+        if self.is_eval:
+            return img1, img2, touch_img_mask1, touch_img_mask2, label1, label2, img1_name, img2_name
+        
+        return img1, img2,touch_img_mask1, touch_img_mask2, label1, label2
+
+    def _load_label(self, label_path):
+        with open(label_path, 'r') as f:
+            x, y, rz = map(float, f.read().strip().split(','))
+        return torch.tensor([x, y, rz], dtype=torch.float32)
+    
 class TransMAEDataset(Dataset):
     def __init__(self, config, is_train=True, transform=None, is_eval = False, use_fix_template = False):
         self.is_train = is_train

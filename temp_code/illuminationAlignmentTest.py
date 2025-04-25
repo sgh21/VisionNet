@@ -503,7 +503,7 @@ def compare_images(img1, img2, align=True):
     start_time = time.time()
     # 使用PyTorch版本的光照对齐函数
     if align:
-        img1_aligned = illumination_alignment_pytorch_wrapper(img1, img2, window_size=4, kernel_size=8, keep_variance=True)
+        img1_aligned = illumination_alignment_pytorch_wrapper(img1, img2, window_size=560, kernel_size=560, keep_variance=True)
     else:
         img1_aligned = img1
     end_time = time.time()
