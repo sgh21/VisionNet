@@ -267,6 +267,9 @@ class LocalMAE(nn.Module):
         Returns:
             pred: 预测的变换参数 [B, 5] (theta, cx, cy, tx, ty)
         """
+        if self.mask_weight and mask1 is not None and mask2 is not None:
+           x1 = x1*mask1 # 直接乘以权重，使得更关注mask区域
+           x2 = x2*mask2
         # Encoder features
         feat1, _mask1, _id_restore1, _ids_keep1 = self.encoder(x1, mask_ratio)  # [B, N, C] 
         keep_mask = {
@@ -274,13 +277,7 @@ class LocalMAE(nn.Module):
             'ids_restore': _id_restore1
         }
         feat2, _mask2, _id_restore2, _ids_keep2 = self.encoder(x2, mask_ratio, keep_mask)  # [B, N, C]
-        if self.mask_weight and mask1 is not None and mask2 is not None:
-            # feat1, feat2 (B, N, C)
-            mask_weight1 = self.mask_patch_pooling(mask1)  # [B, N, 1]
-            mask_weight2 = self.mask_patch_pooling(mask2)  # [B, N, 1]
-            
-            feat1 = feat1 * mask_weight1  # [B, N, C]
-            feat2 = feat2 * mask_weight2  # [B, N, C]
+    
         assert torch.sum(_mask1-_mask2) < 1e-6
 
         # Cross attention 互相算注意力更有效

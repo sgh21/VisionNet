@@ -29,6 +29,7 @@ class LocalMAEDataset(Dataset):
         )
 
         self.touch_transform = transforms.Compose([
+            transforms.Resize((224, 224),interpolation=transforms.InterpolationMode.BICUBIC),
             transforms.ToTensor(),
         ])
         
