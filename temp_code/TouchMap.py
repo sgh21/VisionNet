@@ -245,7 +245,51 @@ class TerraceMapGenerator:
             edge = cv2.dilate(edge, kernel, iterations=thickness-1)
             
         return edge
-    
+    def resample_contour(self, contour, num_samples):
+        """
+        对 OpenCV 轮廓做等距重采样。
+
+        参数
+        ----
+        contour : np.ndarray of shape (N,1,2) 或 (N,2)
+            单条闭合轮廓点集。
+        num_samples : int
+            需要采样的总点数。
+
+        返回
+        ----
+        samples : np.ndarray of shape (num_samples, 2)
+            在轮廓上等距分布的采样点坐标。
+        """
+        # 1. 展平到 (N,2) 并转为 float
+        pts = contour.reshape(-1, 2).astype(np.float64)
+        N = pts.shape[0]
+
+        # 2. 计算每条边的向量和长度，首尾连通
+        #    diffs[i] = pts[(i+1)%N] - pts[i]
+        diffs = np.vstack([pts[1:] - pts[:-1], pts[0] - pts[-1]])
+        seg_len = np.hypot(diffs[:,0], diffs[:,1])  # 每条边的长度，shape=(N,)
+
+        # 3. 累积长度
+        cumlen = np.concatenate([[0], np.cumsum(seg_len)])
+        perim = cumlen[-1]
+
+        # 4. 等距采样的距离位置（从 0 到 perim，不包含 perim 自身）
+        sample_d = np.linspace(0, perim, num_samples, endpoint=False)
+
+        # 5. 对每个采样距离 d：
+        #    - 用 searchsorted 找到它位于哪条边 cumlen[i] <= d < cumlen[i+1]
+        #    - 计算该边上插值比例 t = (d - cumlen[i]) / seg_len[i]
+        #    - 插值 pts[i] + t * diffs[i]
+        idx = np.searchsorted(cumlen, sample_d, side='right') - 1
+        t = (sample_d - cumlen[idx]) / seg_len[idx]
+
+        # 6. 生成采样点
+        p0 = pts[idx]
+        d = diffs[idx]
+        samples = p0 + (d.T * t).T  # 广播插值
+
+        return samples
     def generate_terrace_map(self, mask_img: Union[str, Image.Image, np.ndarray], serial: str = '3524P') -> np.ndarray:
         """
         从掩码生成梯田图
@@ -348,7 +392,8 @@ class TerraceMapGenerator:
             image_list = level_masks
             title_list = ["full_mask", "rect_mask", "outer_mask", "inner_mask", "contour_mask", "all_edges"]
             visualize_images(image_list, title_list, save_path=None, display=True)
-        
+        sample_contours = self.resample_contour(outer_contours[0], 128)
+        print(type(outer_contours[0]))
         return self.terrace_map
 
 def test_terrace_map():
@@ -362,8 +407,8 @@ def test_terrace_map():
         return
     
     # Load test images
-    rgb_img_path = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/rgb_images/image_4024P_0.png"
-    mask_img_path = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/touch_images_mask_process/gel_image_4024P_0.png"
+    rgb_img_path = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/rgb_images/image_4030P_0.png"
+    mask_img_path = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/touch_images_mask_process/gel_image_4030P_0.png"
     
     from config import EXPANSION_SIZE
     # Load RGB image and mask

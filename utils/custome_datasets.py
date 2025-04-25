@@ -24,6 +24,7 @@ class TransMAEDataset(Dataset):
         self.terrace_map_generator = TerraceMapGenerator(
             intensity_scaling = config.intensity_scaling,
             edge_enhancement = config.edge_enhancement,
+            sample_size= config.sample_size,
             expansion_size = EXPANSION_SIZE,
         )
 
@@ -99,8 +100,9 @@ class TransMAEDataset(Dataset):
         touch_mask2 = Image.open(os.path.join(self.touch_img_dir, 'gel_' + img2_name)).convert('RGB')
         # 触觉图像转换
         serial = img1_name.split('_')[-2]
-        terrace_map1 = self.terrace_map_generator(touch_mask1, serial = serial)
-        terrace_map2 = self.terrace_map_generator(touch_mask2, serial = serial)
+        # TODO: 添加contour误差计算方法
+        terrace_map1, sample_contour1 = self.terrace_map_generator(touch_mask1, serial = serial)
+        terrace_map2, sample_contour2 = self.terrace_map_generator(touch_mask2, serial = serial)
         touch_img_mask1 = self.touch_transform(terrace_map1)
         touch_img_mask2 = self.touch_transform(terrace_map2)
         
@@ -116,9 +118,9 @@ class TransMAEDataset(Dataset):
         label1 = self._load_label(os.path.join(self.label_dir, self._remove_prefix(img1_name).replace('.png', '.txt')))
         label2 = self._load_label(os.path.join(self.label_dir, self._remove_prefix(img2_name).replace('.png', '.txt')))
         if self.is_eval:
-            return img1, img2, high_res_img1, high_res_img2, touch_img_mask1, touch_img_mask2, label1, label2, img1_name, img2_name
+            return img1, img2, high_res_img1, high_res_img2, touch_img_mask1, touch_img_mask2, sample_contour1, sample_contour2, label1, label2, img1_name, img2_name
         
-        return img1, img2, high_res_img1, high_res_img2, touch_img_mask1, touch_img_mask2, label1, label2
+        return img1, img2, high_res_img1, high_res_img2, touch_img_mask1, touch_img_mask2, sample_contour1, sample_contour2, label1, label2
 
     def _load_label(self, label_path):
         with open(label_path, 'r') as f:

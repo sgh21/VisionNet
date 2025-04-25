@@ -11,7 +11,7 @@ from tqdm import tqdm
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
 import torchvision.transforms as transforms
-from utils.TransUtils import TerraceMapGenerator, ssim_pytorch
+from utils.TransUtils import TerraceMapGenerator, ssim_pytorch, PatchBasedIlluminationAlignment
 from scipy.optimize import minimize
 
 class TransformationLossAnalyzer:
@@ -44,44 +44,93 @@ class TransformationLossAnalyzer:
             expansion_size=EXPANSION_SIZE,
         )
         
+        # self.illumination_alignment = PatchBasedIlluminationAlignment(
+        #     window_size=4,
+        #     kernel_size=8,
+        #     keep_variance=True,
+        # )
         print(f"使用设备: {self.device}")
         print(f"损失函数类型: {self.loss_type}")
         if self.loss_type == 'combined':
             print(f"SSIM权重: {self.ssim_weight}")
-    
-    def load_images(self, template_path, input_path, size=None):
+
+    def load_images(self, template_path, input_path, size=None, use_gradients=False):
         """
-        Load template and input images
+        加载模板图像和输入图像
         
         Args:
-            template_path: Template image path
-            input_path: Input image path
-            size: Optional, resize images
+            template_path: 模板图像路径
+            input_path: 输入图像路径
+            size: 可选，调整图像大小
+            use_gradients: 是否返回梯度图而非原始图像
             
         Returns:
-            template_tensor, input_tensor: Tensor format of template and input images
+            template_tensor, input_tensor: 张量格式的模板和输入图像
         """
-        # Load images
+        # 加载图像
         template_img = Image.open(template_path).convert('RGB')
         input_img = Image.open(input_path).convert('RGB')
         
-        # Resize if needed
+        # 调整大小（如需要）
         if size is not None:
             template_img = template_img.resize(size)
             input_img = input_img.resize(size)
         
-        # Convert to tensors
+        # 转换为张量
         to_tensor = transforms.ToTensor()
         template_tensor = to_tensor(template_img).to(self.device)
         input_tensor = to_tensor(input_img).to(self.device)
         
-        # Add batch dimension
+        # 添加批处理维度
         if template_tensor.dim() == 3:
             template_tensor = template_tensor.unsqueeze(0)
         if input_tensor.dim() == 3:
             input_tensor = input_tensor.unsqueeze(0)
+        
+        # 保存原始图像用于可视化
+        if use_gradients:
+            self.original_template = template_tensor.clone()
+            self.original_input = input_tensor.clone()
             
+            # 计算梯度幅值
+            template_tensor = self.compute_gradient_magnitude(template_tensor)
+            input_tensor = self.compute_gradient_magnitude(input_tensor)
+                
         return template_tensor, input_tensor
+    
+    # def load_images(self, template_path, input_path, size=None):
+    #     """
+    #     Load template and input images
+        
+    #     Args:
+    #         template_path: Template image path
+    #         input_path: Input image path
+    #         size: Optional, resize images
+            
+    #     Returns:
+    #         template_tensor, input_tensor: Tensor format of template and input images
+    #     """
+    #     # Load images
+    #     template_img = Image.open(template_path).convert('RGB')
+    #     input_img = Image.open(input_path).convert('RGB')
+        
+    #     # Resize if needed
+    #     if size is not None:
+    #         template_img = template_img.resize(size)
+    #         input_img = input_img.resize(size)
+        
+    #     # Convert to tensors
+    #     to_tensor = transforms.ToTensor()
+    #     template_tensor = to_tensor(template_img).to(self.device)
+    #     input_tensor = to_tensor(input_img).to(self.device)
+        
+    #     # Add batch dimension
+    #     if template_tensor.dim() == 3:
+    #         template_tensor = template_tensor.unsqueeze(0)
+    #     if input_tensor.dim() == 3:
+    #         input_tensor = input_tensor.unsqueeze(0)
+            
+    #     return template_tensor, input_tensor
     
     def load_touch_masks(self, template_mask_path, input_mask_path, size=None):
         """
@@ -142,7 +191,43 @@ class TransformationLossAnalyzer:
             input_weight = input_weight.unsqueeze(0)
             
         return template_weight, input_weight
-    
+    def compute_gradient_magnitude(self, image_tensor):
+        """
+        计算图像的梯度幅值
+        
+        Args:
+            image_tensor: 输入图像张量 [B, C, H, W]
+            
+        Returns:
+            梯度幅值图 [B, 1, H, W]
+        """
+        # 定义Sobel滤波器
+        device = image_tensor.device
+        sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32, device=device).unsqueeze(0).unsqueeze(0)
+        sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32, device=device).unsqueeze(0).unsqueeze(0)
+        
+        B, C, H, W = image_tensor.shape
+        grad_magnitude = torch.zeros((B, 1, H, W), device=device)
+        
+        # 对彩色图像，计算各通道梯度后取平均
+        for c in range(C):
+            # 提取单通道
+            channel = image_tensor[:, c:c+1, :, :]
+            
+            # 使用padding以避免边缘效应
+            pad = torch.nn.functional.pad(channel, (1, 1, 1, 1), mode='replicate')
+            
+            # 计算x和y方向的梯度
+            grad_x = torch.nn.functional.conv2d(pad, sobel_x)
+            grad_y = torch.nn.functional.conv2d(pad, sobel_y)
+            
+            # 计算梯度幅值并累加
+            grad_magnitude += torch.sqrt(grad_x**2 + grad_y**2)
+        
+        # 对所有通道求平均
+        grad_magnitude = grad_magnitude / C
+        
+        return grad_magnitude
     def transform_image(self, image, tx, ty):
         """
         Apply translation transformation to image
@@ -366,6 +451,7 @@ class TransformationLossAnalyzer:
         Returns:
             Loss value
         """
+        # transformed_input = self.illumination_alignment(transformed_input, template)
         if self.loss_type == 'mse':
             return self.calculate_weighted_mse_loss(
                 template, transformed_input, template_weight, transformed_input_weight
@@ -1005,18 +1091,18 @@ def main():
     
     # Add command line arguments
     # Add command line arguments
-    parser.add_argument('--template', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/rgb_images/image_3530P_0.png', help='Template image path')
-    parser.add_argument('--input', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/val/val/rgb_images/image_3530P_54.png', help='Input image path')
+    # parser.add_argument('--template', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/rgb_images/image_3530P_0.png', help='Template image path')
+    # parser.add_argument('--input', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/val/val/rgb_images/image_3530P_54.png', help='Input image path')
     # parser.add_argument('--template-mask', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/touch_images_mask_process/gel_image_3530P_0.png', help='Template mask path')
     # parser.add_argument('--input-mask', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/val/val/touch_masks/gel_image_3530P_54.png', help='Input mask path')
-    parser.add_argument('--template-mask', type=str, default=None, help='Template mask path')
-    parser.add_argument('--input-mask', type=str, default=None, help='Input mask path')
+    # parser.add_argument('--template-mask', type=str, default=None, help='Template mask path')
+    # parser.add_argument('--input-mask', type=str, default=None, help='Input mask path')
     
-    # parser.add_argument('--template', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/rgb_images/image_3524P_0.png', help='Template image path')
-    # parser.add_argument('--input', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/rgb_images/image_3524P_40.png', help='Input image path')
-    # parser.add_argument('--template-mask', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/touch_images_mask_process/gel_image_3524P_0.png', help='Template mask path')
-    # parser.add_argument('--input-mask', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/touch_images_mask_process/gel_image_3524P_40.png', help='Input mask path')
-    parser.add_argument('--serial', type=str, default='3530P', help='Product serial number for TerraceMapGenerator')
+    parser.add_argument('--template', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/rgb_images/image_3524P_0.png', help='Template image path')
+    parser.add_argument('--input', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/rgb_images/image_3524P_40.png', help='Input image path')
+    parser.add_argument('--template-mask', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/touch_images_mask_process/gel_image_3524P_0.png', help='Template mask path')
+    parser.add_argument('--input-mask', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/touch_images_mask_process/gel_image_3524P_40.png', help='Input mask path')
+    parser.add_argument('--serial', type=str, default='3524P', help='Product serial number for TerraceMapGenerator')
     parser.add_argument('--x-range', type=str, default='-112,112', help='X-direction translation range, format "min,max"')
     parser.add_argument('--y-range', type=str, default='-112,112', help='Y-direction translation range, format "min,max"')
 
@@ -1027,7 +1113,7 @@ def main():
     parser.add_argument('--optimize', action='store_true', help='Use gradient-based optimization after grid search')
     parser.add_argument('--grid-points', type=int, default=100, help='Number of grid points for each dimension')
     parser.add_argument('--opt-method', type=str, default='L-BFGS-B', help='Optimization method for scipy.optimize.minimize')
-    parser.add_argument('--loss-type', type=str, default='ssim', choices=['mse', 'ssim', 'combined'], 
+    parser.add_argument('--loss-type', type=str, default='mse', choices=['mse', 'ssim', 'combined'], 
                       help='Loss function type: mse, ssim, or combined')
     parser.add_argument('--ssim-weight', type=float, default=1.0, 
                       help='Weight for SSIM loss when using combined loss type')
@@ -1052,7 +1138,7 @@ def main():
     )
     
     # Load images
-    template_img, input_img = analyzer.load_images(args.template, args.input, size)
+    template_img, input_img = analyzer.load_images(args.template, args.input, size, use_gradients=True)
     
     # Process masks and weight maps
     template_weight, input_weight = None, None

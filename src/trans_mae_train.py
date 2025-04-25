@@ -84,6 +84,9 @@ def get_args_parser():
     parser.add_argument('--intensity_scaling', type=list, default=[0.1, 0.6, 0.8, 1.0])
     parser.add_argument('--edge_enhancement', type=float, default=1.5)
     parser.add_argument('--illumination_alignment', type=bool, default=False)
+    parser.add_argument('--gamma', type=float, default=1.0)
+    parser.add_argument('--chamfer_dist', type=bool, default=True)
+    parser.add_argument('--chamfer_dist_type', type=str, default='L2', choices=['L1', 'L2'])
     
     # Optimizer parameters
     parser.add_argument('--weight_decay', type=float, default=0.05,
@@ -258,7 +261,7 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
     if log_writer is not None:
         print('log_dir: {}'.format(log_writer.log_dir))
 
-    for data_iter_step, (img1, img2, high_res_img1, high_res_img2, touch_img_mask1, touch_img_mask2, label1, label2) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    for data_iter_step, (img1, img2, high_res_img1, high_res_img2, touch_img_mask1, touch_img_mask2, sample_contour1, sample_contour2, label1, label2) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         
         # 计算当前的训练进度
         iter_progress = data_iter_step / len(data_loader) + epoch
@@ -273,17 +276,21 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
         high_res_img2 = high_res_img2.to(device, non_blocking=True)
         touch_img_mask1 = touch_img_mask1.to(device, non_blocking=True)
         touch_img_mask2 = touch_img_mask2.to(device, non_blocking=True)
+        sample_contour1 = sample_contour1.to(device, non_blocking=True)
+        sample_contour2 = sample_contour2.to(device, non_blocking=True)
         label1 = label1.to(device, non_blocking=True)
         label2 = label2.to(device, non_blocking=True)
 
         with torch.cuda.amp.autocast():  # 混合精度训练
-            pred, trans_diff_loss, img2_trans = model(
+            pred, trans_diff_loss, chamfer_loss, img2_trans = model(
                 img1, img2, 
                 high_res_x1=high_res_img1, 
                 high_res_x2=high_res_img2,
                 method = args.method,
                 touch_img_mask1 =touch_img_mask1,
                 touch_img_mask2 =touch_img_mask2,
+                sample_contour1 = sample_contour1,
+                sample_contour2 = sample_contour2,
                 mask_ratio=args.mask_ratio, 
                 sigma=args.sigma, 
                 CXCY=args.CXCY
@@ -298,11 +305,12 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
             pred_loss = criterion(pred_vector, delta_label)  # 计算损失
             # 计算总损失
             current_lambda = get_current_lambda(overall_progress, args)
-            loss = (1-current_lambda)*pred_loss + args.beta*current_lambda*trans_diff_loss
+            loss = (1-current_lambda)*pred_loss + args.beta*current_lambda*trans_diff_loss + args.gamma*chamfer_loss
 
         loss_value = loss.item()
         pred_loss_value = pred_loss.item()
         trans_diff_loss_value = trans_diff_loss.item()
+        chamfer_loss_value = chamfer_loss.item()
 
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value))
@@ -327,12 +335,14 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
         loss_value_reduce = misc.all_reduce_mean(loss_value)  # 计算全局损失
         pred_loss_reduce = misc.all_reduce_mean(pred_loss_value)  # 计算全局预测损失
         trans_diff_loss_reduce = misc.all_reduce_mean(trans_diff_loss_value)  # 计算全局变换损失
+        chamfer_loss_reduce = misc.all_reduce_mean(chamfer_loss_value)
         if log_writer is not None and (data_iter_step + 1) % accum_iter == 0:
             epoch_1000x = int((data_iter_step / len(data_loader) + epoch) * 1000)
             log_writer.add_scalar('train/lambda', current_lambda, epoch_1000x)
             log_writer.add_scalar('train/train_loss', loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('train/pred_loss', pred_loss_reduce, epoch_1000x)
             log_writer.add_scalar('train/trans_diff_loss', trans_diff_loss_reduce, epoch_1000x)
+            log_writer.add_scalar('train/chamfer_loss', chamfer_loss_reduce, epoch_1000x)
             log_writer.add_scalar('train/lr', lr, epoch_1000x)
 
     metric_logger.synchronize_between_processes()  # 跨进程同步
@@ -366,7 +376,7 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
     current_lambda = get_current_lambda(overall_progress, args)
     
     with torch.no_grad():
-        for batch_idx, (img1, img2, high_res_img1, high_res_img2, touch_img_mask1, touch_img_mask2, label1, label2) in enumerate(metric_logger.log_every(data_loader, 20, header)):
+        for batch_idx, (img1, img2, high_res_img1, high_res_img2, touch_img_mask1, touch_img_mask2, sample_contour1, sample_contour2, label1, label2) in enumerate(metric_logger.log_every(data_loader, 20, header)):
             img1 = img1.to(device, non_blocking=True)
             img2 = img2.to(device, non_blocking=True)
             high_res_img1 = high_res_img1.to(device, non_blocking=True)
@@ -379,7 +389,7 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
             batch_size = img1.size(0)
             
             with torch.cuda.amp.autocast():
-                pred, trans_diff_loss, img2_trans = model(
+                pred, trans_diff_loss, chamfer_loss, img2_trans = model(
                     img1, img2, 
                     high_res_x1=high_res_img1, 
                     high_res_x2=high_res_img2,
@@ -650,6 +660,8 @@ def main(args):
         pretrained_path=args.mae_pretrained,
         qkv_bias=args.qkv_bias,
         illumination_alignment=args.illumination_alignment,
+        chamfer_dist=args.chamfer_dist,
+        chamfer_dist_type=args.chamfer_dist_type,
     )
 
     model.to(device)

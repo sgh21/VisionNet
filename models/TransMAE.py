@@ -4,6 +4,7 @@ from functools import partial
 from timm.models.vision_transformer import PatchEmbed, Block
 from utils.pos_embed import get_2d_sincos_pos_embed
 from models.Footshone import MAEEncoder, CrossAttention
+from extensions.chamfer_dist import *
 from utils.TransUtils import PatchBasedIlluminationAlignment as IlluminationAlignment
 
 class MAEEncoder(nn.Module):
@@ -189,6 +190,8 @@ class TransMAE(nn.Module):
         qkv_bias=False,
         pretrained_path=None,
         illumination_alignment=False,
+        chamfer_dist=False,
+        chamfer_dist_type='L2',
         window_size=4,
         kernel_size=8,
         keep_variance=True,
@@ -224,6 +227,10 @@ class TransMAE(nn.Module):
             nn.Linear(256, feature_dim),
             nn.Tanh()
         )
+
+        if chamfer_dist:
+            self.chamfer_dist = ChamferDistanceL2() if chamfer_dist_type == 'L2' else ChamferDistanceL1()
+
         self.illumination_alignment = None
         if illumination_alignment:
             self.illumination_alignment = IlluminationAlignment(
@@ -525,8 +532,29 @@ class TransMAE(nn.Module):
         loss = (squared_diff * weights).sum() / (B * C * H * W)
         
         return loss
-
-    def forward(self, x1, x2, high_res_x1=None, high_res_x2=None, mask_ratio=0.75, CXCY=None, method='gaussian', **kwargs):
+    
+    def forward_chamfer_loss(self, xy1, xy2):
+        """
+        计算Chamfer距离损失
+        
+        Args:
+            xy1 (Tensor): 输入图像1，形状为[B, N, 2]
+            xy2 (Tensor): 输入图像2，形状为[B, N, 2]
+        
+        Returns:
+            Tensor: Chamfer距离损失
+        """
+        # 计算Chamfer距离
+        xyz1 = torch.cat([xy1, torch.zeros_like(xy1[:,:, :1])], dim=-1)  # [B, N, 3]
+        xyz2 = torch.cat([xy2, torch.zeros_like(xy2[:,:, :1])], dim=-1)  # [B, N, 3]
+        chamfer_loss = self.chamfer_dist(xyz1, xyz2)
+        return chamfer_loss
+    
+    def forward(self, x1, x2, 
+                high_res_x1=None, high_res_x2=None, 
+                sample_contourl1=None, sample_contourl2=None,
+                mask_ratio=0.75, CXCY=None, 
+                method='gaussian', **kwargs):
         """
         模型前向传播，包含高分辨率损失计算
         
@@ -563,8 +591,12 @@ class TransMAE(nn.Module):
                 method=method,
                 **kwargs
                 )
-        
-        return pred, trans_diff_loss, x2_trans
+        chamfer_loss = 0
+        if sample_contourl1 is not None and sample_contourl2 is not None:
+            # 计算Chamfer距离损失
+            chamfer_loss = self.forward_chamfer_loss(sample_contourl1, sample_contourl2)
+
+        return pred, trans_diff_loss, chamfer_loss, x2_trans
 
 
 def create_transmae_model(

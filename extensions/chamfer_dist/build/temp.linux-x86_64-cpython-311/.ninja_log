@@ -1,0 +1,3 @@
+# ninja log v5
+0	10461	1745549353890185600	/home/sgh/data/WorkSpace/VisionNet/extensions/chamfer_dist/build/temp.linux-x86_64-cpython-311/chamfer_cuda.o	20af10e4a9a57e4b
+0	29057	1745549372480039100	/home/sgh/data/WorkSpace/VisionNet/extensions/chamfer_dist/build/temp.linux-x86_64-cpython-311/chamfer.o	bed5bc01570dbc30

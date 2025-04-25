@@ -629,6 +629,7 @@ class TerraceMapGenerator:
                  intensity_scaling: List[float] = [0.1, 0.6, 0.8, 1.0],
                  edge_enhancement: float = 2.0,
                  expansion_size: Dict[str, List[float]] = None,
+                 sample_size: int = 256,
                  debug: bool = False):
         """
         初始化梯田图生成器
@@ -643,6 +644,7 @@ class TerraceMapGenerator:
         self.intensity_scaling = intensity_scaling
         self.edge_enhancement = edge_enhancement
         self.expansion_size = expansion_size 
+        self.sample_size = sample_size
         self.debug = debug
         
         # 初始化内部状态
@@ -662,9 +664,9 @@ class TerraceMapGenerator:
             梯田图，格式取决于初始化参数
         """
         # 生成梯田图
-        self.generate_terrace_map(img, serial = serial)
-        
-        return self.terrace_map
+        terrace_map, outer_contour = self.generate_terrace_map(img, serial = serial)
+        print(outer_contour)
+        return self.terrace_map, outer_contour
         
     def _convert_to_numpy(self, mask_img: Union[str, Image.Image, np.ndarray]) -> np.ndarray:
         """
@@ -848,6 +850,51 @@ class TerraceMapGenerator:
             edge = cv2.dilate(edge, kernel, iterations=thickness-1)
             
         return edge
+    def resample_contour(self, contour, num_samples):
+        """
+        对 OpenCV 轮廓做等距重采样。
+
+        参数
+        ----
+        contour : np.ndarray of shape (N,1,2) 或 (N,2)
+            单条闭合轮廓点集。
+        num_samples : int
+            需要采样的总点数。
+
+        返回
+        ----
+        samples : np.ndarray of shape (num_samples, 2)
+            在轮廓上等距分布的采样点坐标。
+        """
+        # 1. 展平到 (N,2) 并转为 float
+        pts = contour.reshape(-1, 2).astype(np.float64)
+        N = pts.shape[0]
+
+        # 2. 计算每条边的向量和长度，首尾连通
+        #    diffs[i] = pts[(i+1)%N] - pts[i]
+        diffs = np.vstack([pts[1:] - pts[:-1], pts[0] - pts[-1]])
+        seg_len = np.hypot(diffs[:,0], diffs[:,1])  # 每条边的长度，shape=(N,)
+
+        # 3. 累积长度
+        cumlen = np.concatenate([[0], np.cumsum(seg_len)])
+        perim = cumlen[-1]
+
+        # 4. 等距采样的距离位置（从 0 到 perim，不包含 perim 自身）
+        sample_d = np.linspace(0, perim, num_samples, endpoint=False)
+
+        # 5. 对每个采样距离 d：
+        #    - 用 searchsorted 找到它位于哪条边 cumlen[i] <= d < cumlen[i+1]
+        #    - 计算该边上插值比例 t = (d - cumlen[i]) / seg_len[i]
+        #    - 插值 pts[i] + t * diffs[i]
+        idx = np.searchsorted(cumlen, sample_d, side='right') - 1
+        t = (sample_d - cumlen[idx]) / seg_len[idx]
+
+        # 6. 生成采样点
+        p0 = pts[idx]
+        d = diffs[idx]
+        samples = p0 + (d.T * t).T  # 广播插值
+
+        return samples
     
     def generate_terrace_map(self, mask_img: Union[str, Image.Image, np.ndarray], serial: str = '3524P') -> np.ndarray:
         """
@@ -952,7 +999,8 @@ class TerraceMapGenerator:
             title_list = ["full_mask", "rect_mask", "outer_mask", "inner_mask", "contour_mask", "all_edges"]
             visualize_images(image_list, title_list, save_path=None, display=True)
         
-        return self.terrace_map
+        sample_contour = self.resample_contour(outer_contours[0], self.sample_size)
+        return self.terrace_map, torch.from_numpy(sample_contour)
 
 class SSIM(nn.Module):
     """
