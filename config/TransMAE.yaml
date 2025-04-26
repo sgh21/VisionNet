@@ -33,6 +33,7 @@ edge_enhancement: 1.5
 illumination_alignment: False
 use_mask_weight: true
 pool_mode: 'mean'
+use_ssim_loss: true
 # noise_ratio: 0.3
 # noise_level: 0.5
 

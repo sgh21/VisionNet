@@ -195,7 +195,7 @@ class TransMAE(nn.Module):
         use_chamfer_dist=False,
         chamfer_dist_type='L2',
         use_mask_weight=False,
-        use_ssim=False,
+        use_ssim_loss=False,
         pool_mode='mean',
         window_size=560,
         kernel_size=560,
@@ -217,7 +217,7 @@ class TransMAE(nn.Module):
             remove_class_token=remove_class_token
         )
         # !: 是否使用SSIM, 使用默认参数
-        self.use_ssim = use_ssim
+        self.use_ssim_loss = use_ssim_loss
         if self.use_ssim:
             self.ssim_loss = SSIM(
                 win_size=11,
@@ -561,9 +561,9 @@ class TransMAE(nn.Module):
         weights = transformed_weight_map.expand(B, C, H, W)
         
         # 计算MSE损失并应用权重
-        if self.use_ssim:
+        if self.use_ssim_loss:
             # 使用SSIM损失
-            ssim_loss, loss_map = self.ssim_loss(x1, x2, full=True, wo_light=True)
+            ssim_loss, loss_map = self.ssim_loss(x1, x2, full=True, wo_light=True, loss=True)
         else:
             loss_map = torch.nn.functional.mse_loss(x1, x2, reduction='none')
         loss = (loss_map * weights).sum() / (B * C * H * W)

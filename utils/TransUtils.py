@@ -1095,7 +1095,7 @@ class SSIM(nn.Module):
         else:  # 对于其他通道数，取平均值
             return x.mean(dim=1, keepdim=True)
     
-    def forward(self, img1, img2, data_range=None, full=False, wo_light=False):
+    def forward(self, img1, img2, data_range=None, full=False, wo_light=False, loss=False):
         """
         计算SSIM
         
@@ -1178,10 +1178,16 @@ class SSIM(nn.Module):
         # 计算平均SSIM
         mssim = S.mean()
         # print(S.shape)
-        if full:
-            return mssim, S
+        if loss:
+            if full:
+                return 1 - mssim, 1 - S
+            else:
+                return 1 - mssim
         else:
-            return mssim
+            if full:
+                return mssim, S
+            else:
+                return mssim
 
 
 def ssim_pytorch(img1, img2, win_size=11, sigma=1.5, k1=0.01, k2=0.03,
