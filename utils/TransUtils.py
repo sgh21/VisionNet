@@ -444,7 +444,176 @@ class TouchWeightMapTransform:
             return mask_tensor
         else:
             return mask_transformed
+
+class GlobalIlluminationAlignment(nn.Module):
+    """
+    执行全局光照对齐
+    
+    通过计算整个图像的统计特性（平均值和可选的标准差）来进行光照对齐，
+    应用线性变换 y = ax + b 使源图像在统计上与目标图像匹配
+    
+    参数:
+        eps (float): 防止除零的小数值
+        match_variance (bool): 是否匹配方差。如果为True，同时调整对比度
+        per_channel (bool): 是否为每个通道单独执行对齐
+    """
+    def __init__(self, eps=1e-6, match_variance=False, per_channel=True):
+        super().__init__()
+        self.eps = eps
+        self.match_variance = match_variance
+        self.per_channel = per_channel
+
+    def forward(self, img, template):
+        """
+        将输入图像的光照调整为与模板图像一致
         
+        参数:
+            img (torch.Tensor): 输入图像张量 (B, C, H, W)，值范围[0, 1]或[0, 255]
+            template (torch.Tensor): 模板图像张量 (B, C, H, W)，值范围[0, 1]或[0, 255]
+            
+        返回:
+            torch.Tensor: 光照对齐后的图像张量 (B, C, H, W)，与输入值范围相同
+        """
+        # 确保输入是PyTorch张量
+        if not isinstance(img, torch.Tensor) or not isinstance(template, torch.Tensor):
+            raise TypeError("输入必须是PyTorch张量")
+        
+        # 检查输入尺寸
+        if img.dim() != 4 or template.dim() != 4:
+            raise ValueError("输入张量必须是4维 (B, C, H, W)")
+        
+        # 如果形状不同，调整img大小以匹配template
+        if img.shape[-2:] != template.shape[-2:]:
+            img = F.interpolate(img, size=template.shape[-2:], mode='bilinear', align_corners=False)
+        
+        # 确定图像是否已归一化
+        is_normalized = img.max() <= 1.1
+        
+        # 如果已归一化，转换为0-255范围
+        if is_normalized:
+            img_proc = img * 255.0
+            template_proc = template * 255.0
+        else:
+            img_proc = img.clone()
+            template_proc = template.clone()
+        
+        # 将输入转为浮点型
+        img_proc = img_proc.float()
+        template_proc = template_proc.float()
+        
+        # 计算全局统计量
+        if self.per_channel:
+            # 每个通道单独计算统计量
+            # 形状: [B, C]
+            dim = [2, 3]  # 在H和W维度上计算
+        else:
+            # 所有通道一起计算
+            # 形状: [B, 1]
+            dim = [1, 2, 3]  # 在C、H和W维度上计算
+        
+        # 计算均值
+        img_mean = img_proc.mean(dim=dim, keepdim=True)  # [B, C, 1, 1] 或 [B, 1, 1, 1]
+        template_mean = template_proc.mean(dim=dim, keepdim=True)
+        
+        if self.match_variance:
+            # 计算标准差
+            img_std = torch.std(img_proc, dim=dim, keepdim=True) + self.eps
+            template_std = torch.std(template_proc, dim=dim, keepdim=True) + self.eps
+            
+            # 计算缩放因子a和偏移量b
+            a = template_std / img_std
+            b = template_mean - a * img_mean
+            
+            # 防止极端缩放值
+            a = torch.clamp(a, 0.1, 10.0)
+        else:
+            # 仅匹配均值，保持方差不变
+            a = torch.ones_like(img_mean)
+            b = template_mean - img_mean
+        
+        # 应用变换: aligned = a * x + b
+        aligned_img = a * img_proc + b
+        
+        # 确保值在有效范围内
+        aligned_img = torch.clamp(aligned_img, 0, 255)
+        
+        # 如果输入是归一化的，转换回归一化格式
+        if is_normalized:
+            aligned_img = aligned_img / 255.0
+        
+        return aligned_img
+    
+    def align_image(self, img, target_mean, target_std=None):
+        """
+        将输入图像的光照调整为与目标均值和标准差一致
+        
+        参数:
+            img (torch.Tensor): 输入图像张量 (B, C, H, W)，值范围[0, 1]或[0, 255]
+            target_mean (torch.Tensor): 目标均值 (B, C, 1, 1) 或 (B, 1, 1, 1)
+            target_std (torch.Tensor, optional): 目标标准差 (B, C, 1, 1) 或 (B, 1, 1, 1)
+            
+        返回:
+            torch.Tensor: 光照对齐后的图像张量 (B, C, H, W)，与输入值范围相同
+        """
+        # 确保输入是PyTorch张量
+        if not isinstance(img, torch.Tensor) or not isinstance(target_mean, torch.Tensor):
+            raise TypeError("输入必须是PyTorch张量")
+        
+        # 确定图像是否已归一化
+        is_normalized = img.max() <= 1.1
+        
+        # 如果已归一化，转换为0-255范围
+        if is_normalized:
+            img_proc = img * 255.0
+            target_mean_proc = target_mean * 255.0
+            if target_std is not None:
+                target_std_proc = target_std * 255.0
+        else:
+            img_proc = img.clone()
+            target_mean_proc = target_mean.clone()
+            if target_std is not None:
+                target_std_proc = target_std.clone()
+        
+        # 将输入转为浮点型
+        img_proc = img_proc.float()
+        
+        # 计算统计量
+        if self.per_channel:
+            dim = [2, 3]  # 在H和W维度上计算
+        else:
+            dim = [1, 2, 3]  # 在C、H和W维度上计算
+            img_proc = img_proc.mean(dim=1, keepdim=True)
+        
+        # 计算均值
+        img_mean = img_proc.mean(dim=dim, keepdim=True)
+        
+        if self.match_variance and target_std is not None:
+            # 计算标准差
+            img_std = torch.std(img_proc, dim=dim, keepdim=True) + self.eps
+            
+            # 计算缩放因子a和偏移量b
+            a = target_std_proc / img_std
+            b = target_mean_proc - a * img_mean
+            
+            # 防止极端缩放值
+            a = torch.clamp(a, 0.1, 10.0)
+        else:
+            # 仅匹配均值，保持方差不变
+            a = torch.ones_like(img_mean)
+            b = target_mean_proc - img_mean
+        
+        # 应用变换: aligned = a * x + b
+        aligned_img = a * img_proc + b
+        
+        # 确保值在有效范围内
+        aligned_img = torch.clamp(aligned_img, 0, 255)
+        
+        # 如果输入是归一化的，转换回归一化格式
+        if is_normalized:
+            aligned_img = aligned_img / 255.0
+        
+        return aligned_img
+    
 class PatchBasedIlluminationAlignment(nn.Module):
     """
     Performs illumination alignment patch-by-patch.

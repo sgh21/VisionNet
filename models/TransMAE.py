@@ -5,7 +5,7 @@ from timm.models.vision_transformer import PatchEmbed, Block
 from utils.pos_embed import get_2d_sincos_pos_embed
 from models.Footshone import MAEEncoder, CrossAttention, MaskPatchPooling
 from extensions.chamfer_dist import *
-from utils.TransUtils import PatchBasedIlluminationAlignment as IlluminationAlignment
+from utils.TransUtils import GlobalIlluminationAlignment as IlluminationAlignment
 from utils.TransUtils import SSIM
 
 class MAEEncoder(nn.Module):
@@ -197,9 +197,7 @@ class TransMAE(nn.Module):
         use_mask_weight=False,
         use_ssim_loss=False,
         pool_mode='mean',
-        window_size=560,
-        kernel_size=560,
-        keep_variance=True,
+        match_variance=True,
     ):
         super().__init__()
     
@@ -259,10 +257,9 @@ class TransMAE(nn.Module):
         self.illumination_alignment = None
         if illumination_alignment:
             self.illumination_alignment = IlluminationAlignment(
-                window_size=window_size, 
-                kernel_size=kernel_size, 
-                keep_variance=keep_variance
-                )
+                match_variance=match_variance,
+                per_channel=True,
+            )
             
         self.initialize_weights() 
 
@@ -289,6 +286,23 @@ class TransMAE(nn.Module):
                 if m.bias is not None:
                     torch.nn.init.constant_(m.bias, 0)
 
+    def downsample_mask(self, mask, target_size=(224, 224)):
+        """
+        将掩码从原始尺寸下采样到目标尺寸
+        
+        Args:
+            mask (torch.Tensor): 原始掩码, 形状为 [B, 1, H, W]
+            target_size (tuple): 目标尺寸, 形式为 (height, width)
+            
+        Returns:
+            torch.Tensor: 下采样后的掩码, 形状为 [B, 1, target_height, target_width]
+        """
+        return torch.nn.functional.interpolate(
+            mask, 
+            size=target_size, 
+            mode='bilinear',  # 对于掩码，建议使用'nearest'或'bilinear'
+            align_corners=False
+        )
     def forward_pred(self, x1, x2, mask1=None, mask2=None, mask_ratio=0.75, scale_factors=None):
         """
         预测变换参数
@@ -303,6 +317,15 @@ class TransMAE(nn.Module):
         Returns:
             pred: 预测的变换参数 [B, 5] (theta, cx, cy, tx, ty)
         """
+        
+        if self.use_mask_weight and mask1 is not None and mask2 is not None:
+            # 将掩码从原始尺寸下采样到目标尺寸
+            mask1 = self.downsample_mask(mask1, target_size=(x1.shape[2], x1.shape[3]))
+            mask2 = self.downsample_mask(mask2, target_size=(x2.shape[2], x2.shape[3]))
+            # 计算掩码的平均值
+            x1 = x1 * mask1
+            x2 = x2 * mask2
+        
         # Encoder features
         feat1, _mask1, _id_restore1, _ids_keep1 = self.encoder(x1, mask_ratio)  # [B, N, C] 
         keep_mask = {
@@ -313,13 +336,13 @@ class TransMAE(nn.Module):
         
         assert torch.sum(_mask1-_mask2) < 1e-6
 
-        if self.use_mask_weight and mask1 is not None and mask2 is not None:
-            print("Using mask weight")
-            # 使用掩码权重
-            mask_weight1 = self.mask_patch_pooling(feat1, mask1)
-            mask_weight2 = self.mask_patch_pooling(feat2, mask2)
-            feat1 = feat1 * mask_weight1
-            feat2 = feat2 * mask_weight2
+        # if self.use_mask_weight and mask1 is not None and mask2 is not None:
+        #     print("Using mask weight")
+        #     # 使用掩码权重
+        #     mask_weight1 = self.mask_patch_pooling(feat1, mask1)
+        #     mask_weight2 = self.mask_patch_pooling(feat2, mask2)
+        #     feat1 = feat1 * mask_weight1
+        #     feat2 = feat2 * mask_weight2
 
         # Cross attention 互相算注意力更有效
         # !: 根据官方的实现，在交叉注意力前加入了LayerNorm
@@ -531,7 +554,7 @@ class TransMAE(nn.Module):
         """
         B, C, H, W = shape =  x1.shape
         device = x1.device
-        
+
         # 将基础权重图扩展到批次大小
         if method == 'gaussian':
             batch_weight_map = self.forwrd_weights_map(shape, device, method=method, **kwargs)
@@ -600,6 +623,11 @@ class TransMAE(nn.Module):
             x1, x2: 低分辨率输入图像 (224x224)
             high_res_x1, high_res_x2: 高分辨率输入图像 (可选，用于高精度损失计算)
         """
+                
+        # !: 归一化光照
+        if self.illumination_alignment is not None:
+            x1 = self.illumination_alignment(x1, x2)
+        
         # 从低分辨率图像预测变换参数
         pred = self.forward_pred(x1, x2, mask1=mask1, mask2=mask2, mask_ratio=mask_ratio)
         # 应用变换到低分辨率图像（用于可视化）
@@ -608,8 +636,7 @@ class TransMAE(nn.Module):
         if high_res_x1 is not None and high_res_x2 is not None:
             # 应用相同的变换参数到高分辨率图像
             high_res_x2_trans = self.forward_transfer(high_res_x2, pred, CXCY=CXCY)
-            if self.illumination_alignment is not None:
-                high_res_x2_trans = self.illumination_alignment(high_res_x2_trans, high_res_x1)
+
             # 在高分辨率上计算损失
             trans_diff_loss = self.forward_loss(
                 high_res_x1, 
