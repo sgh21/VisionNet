@@ -85,11 +85,12 @@ def get_args_parser():
     parser.add_argument('--edge_enhancement', type=float, default=1.5)
     parser.add_argument('--illumination_alignment', type=bool, default=False)
     parser.add_argument('--gamma', type=float, default=1.0)
-    parser.add_argument('--chamfer_dist', type=bool, default=True)
+    parser.add_argument('--use_chamfer_dist', type=bool, default=True)
     parser.add_argument('--chamfer_dist_type', type=str, default='L2', choices=['L1', 'L2'])
     parser.add_argument('--use_mask_weight', action='store_true')
     parser.add_argument('--pool_mode', type=str, default='mean', choices=['mean', 'max'])
     parser.add_argument('--sample_size', type=int, default=256)
+    parser.add_argument('--use_ssim_loss', action='store_true')
     
     # Optimizer parameters
     parser.add_argument('--weight_decay', type=float, default=0.05,
@@ -663,11 +664,12 @@ def main(args):
         pretrained_path=args.mae_pretrained,
         qkv_bias=args.qkv_bias,
         illumination_alignment=args.illumination_alignment,
-        chamfer_dist=args.chamfer_dist,
+        use_chamfer_dist=args.use_chamfer_dist,
         chamfer_dist_type=args.chamfer_dist_type,
         use_mask_weight=args.use_mask_weight,
         pool_mode=args.pool_mode,
         mask_size=args.high_res_size,
+        use_ssim_loss=args.use_ssim_loss,
     )
 
     model.to(device)
