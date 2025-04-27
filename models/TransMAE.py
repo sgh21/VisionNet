@@ -250,8 +250,8 @@ class TransMAE(nn.Module):
             nn.Linear(256, feature_dim),
             nn.Tanh()
         )
-
-        if use_chamfer_dist:
+        self.use_chamfer_dist = use_chamfer_dist
+        if self.use_chamfer_dist:
             self.chamfer_dist = ChamferDistanceL2() if chamfer_dist_type == 'L2' else ChamferDistanceL1()
 
         self.illumination_alignment = None
@@ -317,7 +317,7 @@ class TransMAE(nn.Module):
         Returns:
             pred: 预测的变换参数 [B, 5] (theta, cx, cy, tx, ty)
         """
-        
+
         if self.use_mask_weight and mask1 is not None and mask2 is not None:
             # 将掩码从原始尺寸下采样到目标尺寸
             mask1 = self.downsample_mask(mask1, target_size=(x1.shape[2], x1.shape[3]))
@@ -657,7 +657,7 @@ class TransMAE(nn.Module):
                 **kwargs
                 )
         chamfer_loss = 0
-        if sample_contourl1 is not None and sample_contourl2 is not None:
+        if self.use_chamfer_dist and sample_contourl1 is not None and sample_contourl2 is not None:
             # 计算Chamfer距离损失
             chamfer_loss = self.forward_chamfer_loss(sample_contourl1, sample_contourl2)
 

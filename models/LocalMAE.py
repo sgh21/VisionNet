@@ -3,7 +3,8 @@ import torch.nn as nn
 from functools import partial
 from timm.models.vision_transformer import PatchEmbed, Block
 from utils.pos_embed import get_2d_sincos_pos_embed
-from models.Footshone import MAEEncoder, CrossAttention, MaskPatchPooling
+from models.Footshone import MAEEncoder, CrossAttention
+from utils.TransUtils import GlobalIlluminationAlignment as IlluminationAlignment
 
 class MAEEncoder(nn.Module):
 
@@ -186,8 +187,8 @@ class LocalMAE(nn.Module):
         norm_layer=partial(nn.LayerNorm, eps=1e-6),
         feature_dim=3,
         drop_rate=0.1,
+        illumination_alignment=False,
         mask_weight=False,
-        pool_mode='mean',
         qkv_bias=False,
         pretrained_path=None,
     ):
@@ -206,10 +207,14 @@ class LocalMAE(nn.Module):
             pretrained_path=pretrained_path,
             remove_class_token=remove_class_token
         )
+        self.use_illumination_alignment = illumination_alignment
+        if self.use_illumination_alignment:
+            self.illumination_alignment = IlluminationAlignment(
+                match_variance=True,
+                per_channel=True,
+            )
+
         self.mask_weight = mask_weight
-        if self.mask_weight:
-            HL_ratio = mask_size / img_size
-            self.mask_patch_pooling = MaskPatchPooling(img_size=mask_size, patch_size=int(patch_size * HL_ratio), pool_mode=pool_mode)
         # 交叉注意力模块
         # !: 需要检查注意力模块儿是对谁进行注意力计算的
         self.cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
@@ -331,6 +336,10 @@ class LocalMAE(nn.Module):
         Args:
             x1, x2: 低分辨率输入图像 (224x224)
         """
+        if self.use_illumination_alignment:
+            # 进行光照对齐
+            x1 = self.illumination_alignment(x1, x2)
+            
         # 从低分辨率图像预测变换参数
         pred = self.forward_pred(x1, x2, mask1=mask1, mask2=mask2, mask_ratio = mask_ratio, **kwargs)
 

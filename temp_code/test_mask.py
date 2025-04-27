@@ -13,7 +13,23 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models.Footshone import MaskPatchPooling
 from utils.TransUtils import TerraceMapGenerator
 from config import EXPANSION_SIZE
-
+def downsample_mask(mask, target_size=(224, 224)):
+        """
+        将掩码从原始尺寸下采样到目标尺寸
+        
+        Args:
+            mask (torch.Tensor): 原始掩码, 形状为 [B, 1, H, W]
+            target_size (tuple): 目标尺寸, 形式为 (height, width)
+            
+        Returns:
+            torch.Tensor: 下采样后的掩码, 形状为 [B, 1, target_height, target_width]
+        """
+        return torch.nn.functional.interpolate(
+            mask, 
+            size=target_size, 
+            mode='bilinear',  # 对于掩码，建议使用'nearest'或'bilinear'
+            align_corners=False
+        )
 def visualize_mask_effect(img_path, touch_mask_path, patch_size=16, save_path=None):
     """
     可视化图像乘以掩码的效果
@@ -26,6 +42,7 @@ def visualize_mask_effect(img_path, touch_mask_path, patch_size=16, save_path=No
     """
     # 加载图像和掩码
     img = Image.open(img_path).convert('RGB')
+    img = img.resize((224, 224))  # 缩小图像
     touch_mask = Image.open(touch_mask_path).convert('L')
     
     # 获取图像的基本信息
@@ -45,6 +62,7 @@ def visualize_mask_effect(img_path, touch_mask_path, patch_size=16, save_path=No
     )
     terrace_map, _ = terrace_map_generator(touch_mask, serial=serial)
     touch_mask_tensor = to_tensor(terrace_map).unsqueeze(0)  # [1, 1, H, W]
+    touch_mask_tensor = downsample_mask(touch_mask_tensor, target_size=(224, 224))  # 下采样掩码
     
     # 仅保留掩码的第一个通道，作为灰度掩码
     mask_gray = touch_mask_tensor[:, 0:1, :, :]  # [1, 1, H, W]

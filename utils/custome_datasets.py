@@ -137,7 +137,7 @@ class TransMAEDataset(Dataset):
             sample_size= config.sample_size,
             expansion_size = EXPANSION_SIZE,
         )
-
+        
         self.touch_transform = transforms.Compose([
             transforms.ToTensor(),
         ])

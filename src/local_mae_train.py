@@ -482,7 +482,6 @@ def main(args):
         pretrained_path=args.mae_pretrained,
         qkv_bias=args.qkv_bias,
         mask_weight=args.mask_weight,
-        pool_mod=args.pool_mod,
     )
 
     model.to(device)
