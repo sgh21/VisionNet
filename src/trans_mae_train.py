@@ -456,7 +456,7 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                     sample_params = pred[i:i+1].detach()
                     
                     # 如果使用触摸掩码方法
-                    if args.method == 'touch_mask':
+                    if args.method == 'touch_mask' or args.method == 'rgb_mask':
                         # 获取当前样本的掩码
                         mask1 = touch_img_mask1[i:i+1]
                         mask2 = touch_img_mask2[i:i+1]
