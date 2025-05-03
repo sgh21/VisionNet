@@ -1,0 +1,7 @@
+2025-05-03 19:43:40,943 - INFO - 正在扫描源目录: /home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/rgb_masks
+2025-05-03 19:43:41,008 - INFO - 找到 3150 个源文件
+2025-05-03 19:43:41,008 - INFO - 正在扫描目标目录: /home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision/train/images
+2025-05-03 19:43:41,065 - INFO - 找到 2700 个目标文件
+2025-05-03 19:43:41,625 - INFO - 处理完成!
+2025-05-03 19:43:41,626 - INFO - 匹配并复制的文件数: 2700
+2025-05-03 19:43:41,626 - INFO - 未找到匹配的文件数: 0

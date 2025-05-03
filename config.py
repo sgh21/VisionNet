@@ -5,6 +5,7 @@ WEIGHTS_DIR = os.path.join(WORK_DIR, 'weights')
 # Yolo for object detection
 PLUG_MODEL_PATH = os.path.join(WEIGHTS_DIR, 'connector_plug.pt')
 PIN_MODEL_PATH = os.path.join(WEIGHTS_DIR, 'connector_pin.pt')
+PIN_BLACK_MODEL_PATH = os.path.join(WEIGHTS_DIR, 'yoloc8n-seg-pin_black.pt')
 MAE_MODEL_PATH = os.path.join(WEIGHTS_DIR, 'mae_vit_large_patch16_bs64.pth')
 EXPERIMENT_DIR = os.path.join(WORK_DIR, 'experiment')
 DATA_DIR = os.path.join(WORK_DIR, 'documents')
@@ -48,6 +49,7 @@ PARAMS = {
   'pin_model_path': PIN_MODEL_PATH,
   'robot_init_pose': ROBOT_INIT_POSE,
   'mae_model_path': MAE_MODEL_PATH,
+  'pin_black_model_path': PIN_BLACK_MODEL_PATH,
   'experiment_dir': EXPERIMENT_DIR,
   'data_dir': DATA_DIR,
   'dataset_dir': DATASET_DIR,

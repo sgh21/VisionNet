@@ -233,8 +233,8 @@ def test_with_images(img1_path, img2_path, save_path=None):
 
 def main():
     parser = argparse.ArgumentParser(description='测试光照对齐效果')
-    parser.add_argument('--img1', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision/train/images/image_3524P_0.png',help='第一张图像路径')
-    parser.add_argument('--img2', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision/train/images/image_3524P_150.png', help='第二张图像路径')
+    parser.add_argument('--img1', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/new_vision_touch/original/image_crop_10_3524P/image_3524P_300.png',help='第一张图像路径')
+    parser.add_argument('--img2', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/new_vision_touch/original/image_crop_20_3524P/image_3524P_600.png', help='第二张图像路径')
     parser.add_argument('--samples', type=int, default=3, help='从数据集中抽取的样本数量')
     parser.add_argument('--save_dir', type=str, default='illumination_alignment_results', 
                        help='保存结果的目录')

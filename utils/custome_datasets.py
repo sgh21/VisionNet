@@ -125,7 +125,13 @@ class TransMAEDataset(Dataset):
         self.is_eval = is_eval
         root = os.path.join(config.data_path, 'train' if is_train else 'val')
         self.rgb_img_dir = os.path.join(root, 'rgb_images')
-        self.touch_img_dir = os.path.join(root, 'touch_masks')
+        self.mask_method = config.method
+        if self.mask_method == 'touch_mask':
+            self.mask_img_dir = os.path.join(root, 'touch_masks')
+        elif self.mask_method == 'rgb_mask':
+            self.mask_img_dir = os.path.join(root, 'rgb_masks')
+
+
         self.label_dir = os.path.join(root, 'labels')
         self.sample_ratio = config.pair_downsample
         self.high_res_size = config.high_res_size
@@ -206,13 +212,18 @@ class TransMAEDataset(Dataset):
         img1 = Image.open(os.path.join(self.rgb_img_dir, img1_name)).convert('RGB')
         img2 = Image.open(os.path.join(self.rgb_img_dir, img2_name)).convert('RGB')
 
-        touch_mask1 = Image.open(os.path.join(self.touch_img_dir, 'gel_' + img1_name)).convert('RGB')
-        touch_mask2 = Image.open(os.path.join(self.touch_img_dir, 'gel_' + img2_name)).convert('RGB')
+        if self.mask_method == 'touch_mask':
+            mask1 = Image.open(os.path.join(self.mask_img_dir, 'gel_' + img1_name)).convert('L')
+            mask2 = Image.open(os.path.join(self.mask_img_dir, 'gel_' + img2_name)).convert('L')
+        elif self.mask_method == 'rgb_mask':
+            mask1 = Image.open(os.path.join(self.mask_img_dir, img1_name)).convert('L')
+            mask2 = Image.open(os.path.join(self.mask_img_dir, img2_name)).convert('L')
+
         # 触觉图像转换
         serial = img1_name.split('_')[-2]
         # TODO: 添加contour误差计算方法
-        terrace_map1, sample_contour1 = self.terrace_map_generator(touch_mask1, serial = serial)
-        terrace_map2, sample_contour2 = self.terrace_map_generator(touch_mask2, serial = serial)
+        terrace_map1, sample_contour1 = self.terrace_map_generator(mask1, serial = serial)
+        terrace_map2, sample_contour2 = self.terrace_map_generator(mask2, serial = serial)
         touch_img_mask1 = self.touch_transform(terrace_map1)
         touch_img_mask2 = self.touch_transform(terrace_map2)
         

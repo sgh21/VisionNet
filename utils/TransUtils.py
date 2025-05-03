@@ -6,6 +6,7 @@ import os
 import cv2
 from pathlib import Path
 from PIL import Image
+from ultralytics import YOLO
 from typing import Optional, Tuple, Dict, List, Union
 
 
@@ -834,7 +835,7 @@ class TerraceMapGenerator:
         """
         # 生成梯田图
         terrace_map, outer_contour = self.generate_terrace_map(img, serial = serial)
-        print(outer_contour)
+        # print(outer_contour)
         return self.terrace_map, outer_contour
         
     def _convert_to_numpy(self, mask_img: Union[str, Image.Image, np.ndarray]) -> np.ndarray:
@@ -1170,6 +1171,100 @@ class TerraceMapGenerator:
         
         sample_contour = self.resample_contour(outer_contours[0], self.sample_size)
         return self.terrace_map, torch.from_numpy(sample_contour)
+
+class VisionTerraceMapGenerator:
+    """
+    将掩码图像转换为"梯田图"的变换类 (兼容 torchvision.transforms)
+    
+    处理流程:
+    1. 提取掩码边缘并检测内外轮廓
+    2. 拟合旋转矩形
+    3. 生成多层次梯田图 (由内到外亮度递减)
+    4. 在边缘处增强亮度
+    
+    参数:
+        intensity_scaling: 强度缩放倍数列表 (从内到外的亮度比例)
+        edge_enhancement: 边缘增强比例
+        expansion_ratio: 矩形扩大系数
+        output_tensor: 是否返回tensor而不是PIL图像
+    """
+    def __init__(self, 
+                 intensity_scaling: List[float] = [0.1, 0.6, 0.8, 1.0],
+                 edge_enhancement: float = 2.0,
+                 expansion_size: Dict[str, List[float]] = None,
+                 sample_size: int = 256,
+                 yolo_model_path: str = None,
+                 return_mask: bool = False,
+                 debug: bool = False):
+        
+        self.yolo_model = YOLO(model=yolo_model_path) if yolo_model_path else None
+        self.return_mask = return_mask
+
+        self.transform = TerraceMapGenerator(
+            intensity_scaling=intensity_scaling,
+            edge_enhancement=edge_enhancement,
+            expansion_size=expansion_size,
+            sample_size=sample_size,
+            debug=debug
+        )
+    
+    def __call__(self, img, serial = '3524P'):
+        """
+        处理掩码图像(兼容torchvision.transforms.Compose)
+        
+        参数:
+            img: 输入掩码图像，PIL格式
+            
+        返回:
+            梯田图，格式取决于初始化参数
+        """
+        mask_img = self._yolo_inference(img)
+        if self.return_mask:
+            return mask_img
+        
+        # 生成梯田图
+        terrace_map, outer_contour = self.transform(img, serial = serial)
+        return terrace_map, outer_contour
+    
+    def _yolo_inference(self, img):
+        """
+        使用YOLO模型进行推理
+        
+        参数:
+            img: 输入图像，PIL格式
+            
+        返回:
+            检测结果
+        """
+        # 使用YOLO模型进行推理，返回一张mask
+        if self.yolo_model is not None:
+            results = self.yolo_model.predict(img, conf=0.25, iou=0.45, device='cuda:0')
+            # 处理结果，返回mask
+            mask_tensor = results[0].masks.data
+
+            # 如果有多个掩码，合并它们
+            if mask_tensor.shape[0] > 1:
+                mask_combined = torch.max(mask_tensor, dim=0)[0]
+            else:
+                mask_combined = mask_tensor.squeeze(0)
+                
+            # 将掩码转换为NumPy数组
+            mask_np = mask_combined.cpu().numpy()
+            
+            # 确保掩码值在0-255范围内
+            mask_np = (mask_np * 255).astype(np.uint8)
+            
+            # 转换为PIL图像
+            from PIL import Image
+            mask_pil = Image.fromarray(mask_np)
+            
+            return mask_pil
+        else:
+            # 如果没有检测到掩码，返回空白掩码
+            from PIL import Image
+            blank_mask = np.zeros(img.size[::-1], dtype=np.uint8)
+            mask_pil = Image.fromarray(blank_mask)
+            return mask_pil
 
 class SSIM(nn.Module):
     """
@@ -1805,119 +1900,68 @@ def convert_all_img(img_dir, output_dir, transform):
     
     print(f"✓ 已将 {len(image_files)} 张图像处理并保存到 {output_dir}")
 
-if __name__ == '__main__':
-    # 测试代码
-    img_path = '/home/sgh/data/WorkSpace/VisionNet/dataset/result/gel_image_template.png'
+def convert_all_img2mask(img_dir, output_dir, transform):
+    """
+    遍历目录中的所有图像，应用转换，并保存结果
     
-    from config import PARAMS
-    M = PARAMS['m']
-    transform = TouchWeightMapTransform(
-        template_path=img_path,
-        min_area=500,
-        morph_operation='close_open',
-        min_rectangularity=0.55,
-        M = M,
-        canvas_size=(560, 560),
-        to_tensor=False,
-        normalized=False,
-    )
-    img_dir = "/home/sgh/data/WorkSpace/BTBInsertionV2/documents/train_data_0411/visionnet_train_0411/vision_touch/train/touch_images"
-    output_dir = "/home/sgh/data/WorkSpace/BTBInsertionV2/documents/train_data_0411/visionnet_train_0411/vision_touch/train/touch_images_mask"
-    convert_all_img(img_dir=img_dir, output_dir=output_dir, transform=transform)
-    # img_path = '/home/sgh/data/WorkSpace/BTBInsertionV2/documents/train_data_0411/original/gel_images_crop_00_4030P/gel_image_4030P_106.png'
-    # rgb_img_path = '/home/sgh/data/WorkSpace/BTBInsertionV2/documents/train_data_0411/original/image_crop_00_4030P/image_4030P_106.png'
-    # img = Image.open(img_path).convert('RGB')
-    # rgb_img = Image.open(rgb_img_path).convert('RGB')
-    # # 生成掩码
-    # mask = transform(img)
+    参数:
+        img_dir: 输入图像目录
+        output_dir: 输出图像目录
+        transform: 转换函数
+    """
+    # 尝试处理一张图像
+    from PIL import Image
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
     
-    # print(f"完整版掩码形状: {mask.shape}")
+    # 首先获取所有图像文件
+    image_files = [f for f in os.listdir(img_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
     
-    # # 将掩码叠加到RGB图像上
-    # overlay_img = overlay_mask_on_image(
-    #     image=rgb_img,
-    #     mask=mask,
-    #     alpha=0.8,  # 设置透明度
-    #     mask_color=(255, 0, 0),  # 蓝色掩码
-    #     to_tensor=False  # 返回NumPy数组
-    # )
+    # 使用tqdm创建进度条
+    from tqdm import tqdm
+    for filename in tqdm(image_files, desc="处理图像", unit="张"):
+        img_path = os.path.join(img_dir, filename)
+        img = Image.open(img_path).convert('RGB')
+        transformed_img = transform(img)
+        output_path = os.path.join(output_dir, filename)
+        # 保存PIL图像
+        transformed_img.save(output_path)
     
-    # # 可视化 (需要matplotlib)
-    # import matplotlib.pyplot as plt
-    
-    # plt.figure(figsize=(16, 4))
-    
-    # plt.subplot(141)
-    # plt.imshow(img)
-    # plt.title("Tactile image")
-    # plt.axis('off')
-    
-    # plt.subplot(142)
-    # plt.imshow(rgb_img)
-    # plt.title("RGB image")
-    # plt.axis('off')
-    
-    # plt.subplot(143)
-    # plt.imshow(mask.squeeze(), cmap='gray')
-    # plt.title("Tactile mask")
-    # plt.axis('off')
-    
-    # plt.subplot(144)
-    # plt.imshow(overlay_img)
-    # plt.title("Overlay image")
-    # plt.axis('off')
-    
-    # plt.tight_layout()
-    # plt.show()
-    
-    # 保存叠加图像
-    # overlay_img_pil = Image.fromarray(overlay_img)
-    # overlay_img_pil.save('overlay_result.png')
+    print(f"✓ 已将 {len(image_files)} 张图像处理并保存到 {output_dir}")
+
+# *: 根据触觉生成touch_masks
 # if __name__ == '__main__':
 #     # 测试代码
 #     img_path = '/home/sgh/data/WorkSpace/VisionNet/dataset/result/gel_image_template.png'
-#     # img = crop_and_rotate(img_path)
     
-#     # cv2.imwrite('gel_image_template.png', img)
-#     # # 显示处理后的图像
-#     # cv2.imshow('Cropped and Rotated Image', img)
-#     # cv2.waitKey(0)
-#     # cv2.destroyAllWindows()
 #     from config import PARAMS
 #     M = PARAMS['m']
 #     transform = TouchWeightMapTransform(
 #         template_path=img_path,
 #         min_area=500,
-#         min_rectangularity=0.7,
+#         morph_operation='close_open',
+#         min_rectangularity=0.9,
 #         M = M,
+#         canvas_size=(560, 560),
+#         to_tensor=False,
+#         normalized=False,
 #     )
-#     # 尝试处理一张图像
-#     from PIL import Image
+#     img_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/new_vision_touch/unpack/val/val_all/touch_images"
+#     output_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/new_vision_touch/unpack/val/val_all/touch_masks"
+#     convert_all_img(img_dir=img_dir, output_dir=output_dir, transform=transform)
+
+# *: 根据视觉生成vision_masks
+if __name__ == '__main__':
     
-#     img_path = '/home/sgh/data/WorkSpace/BTBInsertionV2/documents/train_data_0411/original/gel_images_crop_01_3560P/gel_image_3560P_156.png'
-#     rgb_img_path = '/home/sgh/data/WorkSpace/BTBInsertionV2/documents/train_data_0411/original/image_crop_01_3560P/image_3560P_156.png'
-#     img = Image.open(img_path)
-#     rgb_img = Image.open(rgb_img_path)
-#     # 生成掩码
-#     mask = transform(img)
-    
-#     print(f"完整版掩码形状: {mask.shape}")
-    
-#     # 可视化 (需要matplotlib)
-#     import matplotlib.pyplot as plt
-    
-#     plt.figure(figsize=(12, 4))
-    
-#     plt.subplot(121)
-#     plt.imshow(img)
-#     plt.title("original image")
-#     plt.axis('off')
-    
-#     plt.subplot(122)
-#     plt.imshow(mask.squeeze(), cmap='gray')
-#     plt.title("Mask")
-#     plt.axis('off')
-    
-    
-#     plt.tight_layout()
-#     plt.show()
+    from config import PARAMS
+    yolo_model_path = PARAMS['pin_black_model_path']
+
+    transform = VisionTerraceMapGenerator(
+        yolo_model_path=yolo_model_path,
+        return_mask=True,
+    )
+    img_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/rgb_images"
+    output_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/rgb_masks"
+
+    convert_all_img2mask(img_dir=img_dir, output_dir=output_dir, transform=transform)

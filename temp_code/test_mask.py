@@ -150,8 +150,8 @@ def visualize_mask_effect(img_path, touch_mask_path, patch_size=16, save_path=No
 
 def main():
     parser = argparse.ArgumentParser(description='掩码应用效果可视化工具')
-    parser.add_argument('--img', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/rgb_images/image_3524P_0.png', help='原始图像路径')
-    parser.add_argument('--mask', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/touch_images_mask_process/gel_image_3524P_0.png', help='触摸掩码图像路径')
+    parser.add_argument('--img', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/rgb_images/image_3524P_0.png', help='原始图像路径')
+    parser.add_argument('--mask', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/rgb_masks/image_3524P_0.png', help='触摸掩码图像路径')
     parser.add_argument('--patch_size', type=int, default=16, help='patch大小')
     parser.add_argument('--save', type=str, default=None, help='保存结果图像的路径')
     
