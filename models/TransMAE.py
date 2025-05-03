@@ -320,11 +320,11 @@ class TransMAE(nn.Module):
 
         if self.use_mask_weight and mask1 is not None and mask2 is not None:
             # 将掩码从原始尺寸下采样到目标尺寸
-            mask1 = self.downsample_mask(mask1, target_size=(x1.shape[2], x1.shape[3]))
-            mask2 = self.downsample_mask(mask2, target_size=(x2.shape[2], x2.shape[3]))
+            mask1_ds = self.downsample_mask(mask1, target_size=(x1.shape[2], x1.shape[3]))
+            mask2_ds = self.downsample_mask(mask2, target_size=(x2.shape[2], x2.shape[3]))
             # 计算掩码的平均值
-            x1 = x1 * mask1
-            x2 = x2 * mask2
+            x1 = x1 * mask1_ds
+            x2 = x2 * mask2_ds
         
         # Encoder features
         feat1, _mask1, _id_restore1, _ids_keep1 = self.encoder(x1, mask_ratio)  # [B, N, C] 
@@ -561,15 +561,15 @@ class TransMAE(nn.Module):
             # 应用变换到权重图
             transformed_weight_map = self.forward_transfer(batch_weight_map, params, CXCY=CXCY)
         # TODO: mask不平滑，应该对边缘，边框区域，给与更高权重，边界给与部分权重
-        elif method == 'touch_mask':
-            touch_img_mask1 = kwargs.get('touch_img_mask1', None) # [B, 1, H, W]
-            touch_img_mask2 = kwargs.get('touch_img_mask2', None) # [B, 1, H, W]
-            if touch_img_mask1 is None or touch_img_mask2 is None:
-                raise ValueError("For 'touch_mask' method, 'touch_img_mask1' and 'touch_img_mask2' must be provided.")
+        elif method == 'touch_mask' or method == 'rgb_mask':
+            mask1 = kwargs.get('mask1', None) # [B, 1, H, W]
+            mask2 = kwargs.get('mask2', None) # [B, 1, H, W]
+            if mask1 is None or mask2 is None:
+                raise ValueError("For 'touch_mask' method, 'mask1' and 'mask2' must be provided.")
             
-            transformed_touch_img_mask2 = self.forward_transfer(touch_img_mask2, params, CXCY=CXCY)
+            transformed_mask2 = self.forward_transfer(mask2, params, CXCY=CXCY)
             # 将两张图像的掩码结合
-            transformed_weight_map = torch.max(touch_img_mask1, transformed_touch_img_mask2)
+            transformed_weight_map = torch.max(mask1, transformed_mask2)
             
             # 归一化权重图，使权重总和为像素数量
             pixel_count = H * W
@@ -644,7 +644,8 @@ class TransMAE(nn.Module):
                 params=pred, 
                 CXCY=CXCY,
                 method=method,
-                **kwargs
+                mask1=mask1,
+                mask2=mask2,
                 )
         else:
             # 回退到低分辨率损失
@@ -654,7 +655,8 @@ class TransMAE(nn.Module):
                 params=pred, 
                 CXCY=CXCY,
                 method=method,
-                **kwargs
+                mask1=mask1,
+                mask2=mask2,
                 )
         chamfer_loss = 0
         if self.use_chamfer_dist and sample_contourl1 is not None and sample_contourl2 is not None:

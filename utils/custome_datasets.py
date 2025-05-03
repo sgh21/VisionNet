@@ -218,6 +218,8 @@ class TransMAEDataset(Dataset):
         elif self.mask_method == 'rgb_mask':
             mask1 = Image.open(os.path.join(self.mask_img_dir, img1_name)).convert('L')
             mask2 = Image.open(os.path.join(self.mask_img_dir, img2_name)).convert('L')
+            mask1 = mask1.resize((560, 560),interpolation=Image.NEAREST)
+            mask2 = mask2.resize((560, 560),interpolation=Image.NEAREST)
 
         # 触觉图像转换
         serial = img1_name.split('_')[-2]

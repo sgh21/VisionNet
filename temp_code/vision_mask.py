@@ -1,385 +1,366 @@
-#!/usr/bin/env python3
-
 import os
 import sys
-import cv2
-import numpy as np
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageTk
+import numpy as np
+import cv2
+from functools import partial
 
-class ImageViewer:
+class ImageOverlayApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("视觉-触觉掩码查看器")
-        self.root.geometry("1100x750")
+        self.root.title("图片叠加显示器")
+        self.root.geometry("1200x800")
         
         # 初始化变量
+        self.folder1 = ""
+        self.folder2 = ""
+        self.image_pairs = []  # 存储匹配的图片对
         self.current_index = 0
-        self.visual_images = []  # 视觉图像路径列表
-        self.mask_images = []    # 掩码图像路径列表
-        self.serial_numbers = [] # 序列号列表
-        self.current_visual = None
-        self.current_mask = None
-        self.base_dir = ""
-        self.overlay_alpha = 0.4  # 默认透明度
+        self.alpha = 0.5  # 透明度默认值
+        self.current_blended = None
+        self.img1 = None
+        self.img2 = None
         
-        # 设置主题
-        self.set_theme()
-        
-        # 创建UI
+        # 创建界面
         self.create_ui()
         
-        # 绑定键盘事件
-        self.root.bind('<a>', lambda e: self.prev_image())
-        self.root.bind('<d>', lambda e: self.next_image())
-        
-        # 显示欢迎信息
-        self.update_status("欢迎使用! 请选择数据集根目录，按A/D键浏览图像")
-    
-    def set_theme(self):
-        """设置应用程序主题颜色"""
-        style = ttk.Style()
-        style.theme_use('clam')
-        
-        bg_color = "#F5F5F5"
-        fg_color = "#333333"
-        accent_color = "#4CAF50"
-        
-        style.configure('TFrame', background=bg_color)
-        style.configure('TLabel', background=bg_color, foreground=fg_color)
-        style.configure('TButton', background=bg_color, foreground=fg_color)
-        style.map('TButton',
-                 background=[('active', accent_color)],
-                 foreground=[('active', 'white')])
-        
-        self.root.configure(background=bg_color)
-    
     def create_ui(self):
-        # 主布局
+        # 顶部控制区域
+        control_frame = ttk.Frame(self.root, padding="10")
+        control_frame.pack(fill=tk.X)
+        
+        # 文件夹选择区域
+        ttk.Button(control_frame, text="选择第一个文件夹", command=lambda: self.select_folder(1)).grid(row=0, column=0, padx=5, pady=5)
+        self.lbl_folder1 = ttk.Label(control_frame, text="未选择文件夹")
+        self.lbl_folder1.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        
+        ttk.Button(control_frame, text="选择第二个文件夹", command=lambda: self.select_folder(2)).grid(row=0, column=2, padx=5, pady=5)
+        self.lbl_folder2 = ttk.Label(control_frame, text="未选择文件夹")
+        self.lbl_folder2.grid(row=0, column=3, padx=5, pady=5, sticky="w")
+        
+        # 主内容区域
         main_frame = ttk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # 标题栏 - 显示当前图片信息
-        self.title_frame = ttk.Frame(main_frame)
-        self.title_frame.pack(fill=tk.X, pady=(0, 5))
+        # 创建左右布局
+        main_frame.columnconfigure(1, weight=3)  # 图片显示区域占更多空间
         
-        self.title_var = tk.StringVar()
-        self.title_label = ttk.Label(self.title_frame, textvariable=self.title_var, 
-                                     font=('Arial', 12, 'bold'), anchor=tk.CENTER)
-        self.title_label.pack(fill=tk.X)
+        # 左边：图片列表
+        list_frame = ttk.Frame(main_frame, padding="10")
+        list_frame.grid(row=0, column=0, sticky="nsew")
         
-        # 进度条
-        self.progress_frame = ttk.Frame(main_frame)
-        self.progress_frame.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(list_frame, text="匹配的图片:").pack(anchor="w")
         
-        self.progress_label = ttk.Label(self.progress_frame, text="进度:")
-        self.progress_label.pack(side=tk.LEFT, padx=(0, 5))
+        # 创建带滚动条的列表框
+        list_container = ttk.Frame(list_frame)
+        list_container.pack(fill=tk.BOTH, expand=True)
         
-        self.progress_bar = ttk.Progressbar(self.progress_frame, length=100, mode='determinate')
-        self.progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        scrollbar = ttk.Scrollbar(list_container)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        self.progress_text = ttk.Label(self.progress_frame, text="0/0")
-        self.progress_text.pack(side=tk.LEFT, padx=(5, 0))
+        self.image_listbox = tk.Listbox(list_container, yscrollcommand=scrollbar.set)
+        self.image_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=self.image_listbox.yview)
         
-        # 内容区域
-        content_frame = ttk.Frame(main_frame)
-        content_frame.pack(fill=tk.BOTH, expand=True)
+        self.image_listbox.bind('<<ListboxSelect>>', self.on_image_select)
         
-        # 图像显示区域
-        self.image_frame = ttk.Frame(content_frame)
-        self.image_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # 右边：图片显示区域
+        display_frame = ttk.Frame(main_frame, padding="10")
+        display_frame.grid(row=0, column=1, sticky="nsew")
         
-        self.canvas = tk.Canvas(self.image_frame, bg='#F0F0F0')
+        # 图片信息标签
+        self.info_label = ttk.Label(display_frame, text="请选择两个文件夹以查找匹配图片")
+        self.info_label.pack(anchor="w")
+        
+        # 图片显示区域
+        self.canvas_frame = ttk.Frame(display_frame, borderwidth=2, relief="sunken")
+        self.canvas_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        self.canvas = tk.Canvas(self.canvas_frame, bg="#222222")
         self.canvas.pack(fill=tk.BOTH, expand=True)
         
-        # 设置面板
-        settings_frame = ttk.Frame(content_frame, width=200)
-        settings_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
-        
-        # 叠加设置
-        overlay_frame = ttk.LabelFrame(settings_frame, text="叠加设置")
-        overlay_frame.pack(fill=tk.X, pady=5)
+        # 透明度控制区域
+        control_panel = ttk.Frame(display_frame)
+        control_panel.pack(fill=tk.X, pady=5)
         
         # 透明度滑块
-        alpha_frame = ttk.Frame(overlay_frame)
-        alpha_frame.pack(fill=tk.X, pady=10)
+        ttk.Label(control_panel, text="透明度:").grid(row=0, column=0, padx=5)
+        self.opacity_var = tk.DoubleVar(value=50)
+        self.opacity_slider = ttk.Scale(control_panel, from_=0, to=100, 
+                                        orient="horizontal", variable=self.opacity_var, 
+                                        command=self.update_overlay)
+        self.opacity_slider.grid(row=0, column=1, padx=5, sticky="ew")
         
-        alpha_label = ttk.Label(alpha_frame, text="透明度:")
-        alpha_label.pack(side=tk.LEFT, padx=5)
+        self.opacity_label = ttk.Label(control_panel, text="50%")
+        self.opacity_label.grid(row=0, column=2, padx=5)
         
-        self.alpha_var = tk.DoubleVar(value=self.overlay_alpha)
-        alpha_slider = ttk.Scale(alpha_frame, from_=0.0, to=1.0, 
-                                orient=tk.HORIZONTAL, 
-                                variable=self.alpha_var,
-                                command=self.update_alpha)
-        alpha_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        # 叠加模式
+        ttk.Label(control_panel, text="叠加模式:").grid(row=1, column=0, padx=5, pady=5)
+        self.blend_mode_var = tk.StringVar(value="普通")
+        blend_modes = ["普通", "加法", "减法", "乘法", "屏幕", "叠加"]
+        blend_mode_combo = ttk.Combobox(control_panel, textvariable=self.blend_mode_var, 
+                                         values=blend_modes, state="readonly", width=10)
+        blend_mode_combo.grid(row=1, column=1, padx=5, sticky="w", pady=5)
+        blend_mode_combo.bind("<<ComboboxSelected>>", self.update_overlay)
         
-        # 目录选择
-        dir_frame = ttk.LabelFrame(settings_frame, text="数据集设置")
-        dir_frame.pack(fill=tk.X, pady=5)
+        # 按钮区域
+        button_panel = ttk.Frame(control_panel)
+        button_panel.grid(row=2, column=0, columnspan=3, pady=5)
         
-        select_dir_btn = ttk.Button(dir_frame, text="选择数据集根目录", 
-                                    command=self.select_directory)
-        select_dir_btn.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Button(button_panel, text="上一张", command=self.prev_image).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_panel, text="下一张", command=self.next_image).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_panel, text="保存当前叠加图", command=self.save_overlay_image).pack(side=tk.LEFT, padx=5)
         
-        # 目录信息显示
-        self.dir_info_var = tk.StringVar(value="未选择目录")
-        dir_info_label = ttk.Label(dir_frame, textvariable=self.dir_info_var,
-                                  wraplength=180)
-        dir_info_label.pack(padx=5, pady=5, fill=tk.X)
+        # 让控制面板中的滑块可以伸展
+        control_panel.columnconfigure(1, weight=1)
         
-        # 图像信息
-        image_info_frame = ttk.LabelFrame(settings_frame, text="图像信息")
-        image_info_frame.pack(fill=tk.X, pady=5)
+    def select_folder(self, folder_num):
+        folder = filedialog.askdirectory(title=f"选择文件夹 {folder_num}")
         
-        self.visual_info_var = tk.StringVar(value="视觉图像: 未加载")
-        visual_info_label = ttk.Label(image_info_frame, textvariable=self.visual_info_var,
-                                     wraplength=180)
-        visual_info_label.pack(padx=5, pady=2, fill=tk.X)
-        
-        self.mask_info_var = tk.StringVar(value="触觉掩码: 未加载")
-        mask_info_label = ttk.Label(image_info_frame, textvariable=self.mask_info_var,
-                                   wraplength=180)
-        mask_info_label.pack(padx=5, pady=2, fill=tk.X)
-        
-        # 控制栏
-        control_frame = ttk.Frame(main_frame)
-        control_frame.pack(fill=tk.X, pady=10)
-        
-        # 上一张按钮
-        self.prev_btn = ttk.Button(control_frame, text="上一张 (A)", command=self.prev_image)
-        self.prev_btn.pack(side=tk.LEFT, padx=5)
-        
-        # 下一张按钮
-        self.next_btn = ttk.Button(control_frame, text="下一张 (D)", command=self.next_image)
-        self.next_btn.pack(side=tk.LEFT, padx=5)
-        
-        # 状态栏
-        self.status_frame = ttk.Frame(self.root)
-        self.status_frame.pack(side=tk.BOTTOM, fill=tk.X)
-        
-        self.status_var = tk.StringVar()
-        self.status_bar = ttk.Label(self.status_frame, textvariable=self.status_var, 
-                                   relief=tk.SUNKEN, anchor=tk.W)
-        self.status_bar.pack(fill=tk.X)
-    
-    def update_status(self, message):
-        """更新状态栏信息"""
-        self.status_var.set(message)
-        self.root.update_idletasks()
-    
-    def update_alpha(self, *args):
-        """更新叠加透明度"""
-        self.overlay_alpha = self.alpha_var.get()
-        if self.current_visual is not None and self.current_mask is not None:
-            self.display_overlay()
-    
-    def select_directory(self):
-        """选择数据集根目录"""
-        dir_path = filedialog.askdirectory(title="选择数据集根目录")
-        if not dir_path:
-            return
+        if folder:
+            if folder_num == 1:
+                self.folder1 = folder
+                self.lbl_folder1.config(text=folder)
+            else:
+                self.folder2 = folder
+                self.lbl_folder2.config(text=folder)
             
-        self.base_dir = dir_path
+            # 如果两个文件夹都已选择，找出匹配的图片
+            if self.folder1 and self.folder2:
+                self.find_matching_images()
+                
+    def find_matching_images(self):
+        # 获取两个文件夹中的所有图片文件
+        files1 = self.get_image_files(self.folder1)
+        files2 = self.get_image_files(self.folder2)
         
-        # 检查目录结构
-        rgb_dir = os.path.join(dir_path, "rgb_images")
-        mask_dir = os.path.join(dir_path, "touch_images_mask_process")
+        # 提取文件名（不含扩展名）
+        file_dict1 = {os.path.splitext(os.path.basename(f))[0]: f for f in files1}
+        file_dict2 = {os.path.splitext(os.path.basename(f))[0]: f for f in files2}
         
-        if not os.path.isdir(rgb_dir) or not os.path.isdir(mask_dir):
-            messagebox.showerror("错误", "找不到 rgb_images 或 touch_images_mask 子目录！")
-            return
+        # 找出匹配的文件
+        self.image_pairs = []
+        for name in file_dict1:
+            if name in file_dict2:
+                self.image_pairs.append((name, file_dict1[name], file_dict2[name]))
         
-        # 加载图像列表
-        self.load_image_lists(rgb_dir, mask_dir)
-    
-    def load_image_lists(self, rgb_dir, mask_dir):
-        """加载视觉和掩码图像列表，并建立匹配关系"""
-        self.visual_images = []
-        self.mask_images = []
-        self.serial_numbers = []
+        # 更新列表显示
+        self.update_image_list()
         
-        # 获取所有视觉图像
-        rgb_files = [f for f in os.listdir(rgb_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-        
-        # 获取所有掩码图像
-        mask_files = [f for f in os.listdir(mask_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-        
-        # 解析序列号和建立对应关系
-        serial_to_visual = {}
-        serial_to_mask = {}
-        
-        for file in rgb_files:
-            # 从 image_serial_number.png 格式中提取序列号
-            if file.startswith("image_"):
-                serial = file[6:].split(".")[0]  # 获取serial_number部分
-                serial_to_visual[serial] = os.path.join(rgb_dir, file)
-        
-        for file in mask_files:
-            # 从 gel_image_serial_number.png 格式中提取序列号
-            if file.startswith("gel_image_"):
-                serial = file[10:].split(".")[0]  # 获取serial_number部分
-                serial_to_mask[serial] = os.path.join(mask_dir, file)
-        
-        # 保留两个列表中都有的序列号
-        common_serials = sorted(list(set(serial_to_visual.keys()) & set(serial_to_mask.keys())))
-        
-        if not common_serials:
-            messagebox.showwarning("警告", "找不到匹配的视觉和掩码图像对！")
-            return
-        
-        # 按序列号排序并保存对应的文件路径
-        for serial in common_serials:
-            self.serial_numbers.append(serial)
-            self.visual_images.append(serial_to_visual[serial])
-            self.mask_images.append(serial_to_mask[serial])
-        
-        # 更新目录信息显示
-        self.dir_info_var.set(f"当前目录: {self.base_dir}\n共找到 {len(self.serial_numbers)} 对匹配图像")
-        
-        # 加载第一对图像
-        if self.serial_numbers:
+        # 显示第一张匹配的图片（如果有）
+        if self.image_pairs:
             self.current_index = 0
-            self.load_current_images()
-            self.update_status(f"已加载 {len(self.serial_numbers)} 对图像")
+            self.display_current_image()
+        else:
+            messagebox.showinfo("结果", "未找到匹配的图片")
     
-    def load_current_images(self):
-        """加载当前选中的图像对"""
-        if not self.serial_numbers:
+    def get_image_files(self, folder):
+        image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp']
+        files = []
+        
+        for root, _, filenames in os.walk(folder):
+            for filename in filenames:
+                if any(filename.lower().endswith(ext) for ext in image_extensions):
+                    files.append(os.path.join(root, filename))
+        
+        return files
+    
+    def update_image_list(self):
+        # 清空列表
+        self.image_listbox.delete(0, tk.END)
+        
+        # 添加匹配的图片名
+        for name, _, _ in self.image_pairs:
+            self.image_listbox.insert(tk.END, name)
+        
+        # 更新窗口标题
+        self.root.title(f"图片叠加显示器 - 找到 {len(self.image_pairs)} 对匹配图片")
+    
+    def on_image_select(self, event):
+        # 获取所选项的索引
+        selection = self.image_listbox.curselection()
+        if selection:
+            self.current_index = selection[0]
+            self.display_current_image()
+    
+    def display_current_image(self):
+        if not self.image_pairs:
             return
         
-        # 加载视觉图像
-        visual_path = self.visual_images[self.current_index]
-        self.current_visual = cv2.imread(visual_path)
-        if self.current_visual is not None:
-            self.current_visual = cv2.cvtColor(self.current_visual, cv2.COLOR_BGR2RGB)
-            visual_h, visual_w = self.current_visual.shape[:2]
-            self.visual_info_var.set(f"视觉图像: 已加载\n尺寸: {visual_w}x{visual_h}")
-        else:
-            self.visual_info_var.set(f"视觉图像: 加载失败")
+        # 获取当前图片对
+        name, img1_path, img2_path = self.image_pairs[self.current_index]
         
-        # 加载掩码图像
-        mask_path = self.mask_images[self.current_index]
-        self.current_mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-        if self.current_mask is not None:
-            mask_h, mask_w = self.current_mask.shape[:2]
-            self.mask_info_var.set(f"触觉掩码: 已加载\n尺寸: {mask_w}x{mask_h}")
-        else:
-            self.mask_info_var.set(f"触觉掩码: 加载失败")
+        # 显示图片名称
+        self.info_label.config(text=f"当前图片: {name} ({self.current_index+1}/{len(self.image_pairs)})")
         
-        # 显示叠加图像
-        if self.current_visual is not None and self.current_mask is not None:
-            self.display_overlay()
+        # 读取图片
+        self.img1 = cv2.imread(img1_path)
+        self.img2 = cv2.imread(img2_path)
         
-        # 更新标题、进度条等
-        self.update_title()
-    
-    def update_title(self):
-        """更新标题和进度显示"""
-        if not self.serial_numbers:
-            self.title_var.set("未加载图像")
-            self.progress_bar['value'] = 0
-            self.progress_text.config(text="0/0")
-            return
-            
-        # 更新标题
-        serial = self.serial_numbers[self.current_index]
-        self.title_var.set(f"序列号: {serial}")
-        
-        # 更新进度条
-        total = len(self.serial_numbers)
-        current = self.current_index + 1
-        progress_pct = (current / total) * 100
-        self.progress_bar['value'] = progress_pct
-        self.progress_text.config(text=f"{current}/{total}")
-    
-    def display_overlay(self):
-        """将掩码叠加在视觉图像上显示"""
-        if self.current_visual is None or self.current_mask is None:
+        # 如果任一图片无法读取，显示错误并返回
+        if self.img1 is None or self.img2 is None:
+            messagebox.showerror("错误", f"无法读取图片:\n{img1_path}\n或\n{img2_path}")
             return
         
-        # 确保尺寸匹配，必要时调整掩码尺寸
-        if self.current_visual.shape[:2] != self.current_mask.shape:
-            resized_mask = cv2.resize(self.current_mask, 
-                                     (self.current_visual.shape[1], self.current_visual.shape[0]))
-        else:
-            resized_mask = self.current_mask.copy()
+        # 调整图片2的大小以匹配图片1
+        if self.img1.shape != self.img2.shape:
+            self.img2 = cv2.resize(self.img2, (self.img1.shape[1], self.img1.shape[0]))
         
-        # 创建彩色掩码 - 使用浅色调
-        colored_mask = self.create_colored_mask(resized_mask)
-        
-        # 根据透明度叠加
-        alpha = self.overlay_alpha
-        overlay = cv2.addWeighted(self.current_visual, 1-alpha, colored_mask, alpha, 0)
-        
-        # 显示叠加结果
-        self.display_image(overlay)
+        # 更新叠加图像
+        self.update_overlay()
     
-    def create_colored_mask(self, mask):
-        """创建蓝色系的彩色掩码"""
-        # 创建空白的彩色掩码 (RGB格式)
-        h, w = mask.shape
-        colored_mask = np.zeros((h, w, 3), dtype=np.uint8)
+    def update_overlay(self, *args):
+        if not hasattr(self, 'img1') or self.img1 is None or self.img2 is None:
+            return
         
-        # 在所有非零区域应用蓝色 (B通道)
-        # 使用渐变蓝色，使强度与原始掩码值成比例
-        colored_mask[:,:,0] = 0                 # R通道设为0
-        colored_mask[:,:,1] = mask // 2         # G通道设为mask值的一半，添加一些青色调
-        colored_mask[:,:,2] = mask              # B通道设为完整mask值
+        # 获取透明度值
+        alpha = self.opacity_var.get() / 100.0
+        self.alpha = alpha
+        self.opacity_label.config(text=f"{int(alpha*100)}%")
         
-        # 可选：增加亮度，使颜色更鲜明
-        brightness_factor = 1.5
-        colored_mask = np.clip(colored_mask * brightness_factor, 0, 255).astype(np.uint8)
+        # 根据选择的混合模式执行不同的混合操作
+        blend_mode = self.blend_mode_var.get()
         
-        return colored_mask
-    
-    def display_image(self, image):
-        """在画布上显示图像"""
-        # 转换为PIL图像并调整大小
-        pil_img = Image.fromarray(image)
+        if blend_mode == "普通":  # 普通混合
+            blended = cv2.addWeighted(self.img1, 1-alpha, self.img2, alpha, 0)
+        elif blend_mode == "加法":  # 加法
+            blended = cv2.add(cv2.multiply(self.img1, 1-alpha), cv2.multiply(self.img2, alpha))
+        elif blend_mode == "减法":  # 减法
+            blended = cv2.subtract(self.img1, cv2.multiply(self.img2, alpha))
+        elif blend_mode == "乘法":  # 乘法
+            # 归一化后相乘
+            blended = cv2.multiply(self.img1/255.0, self.img2/255.0)
+            blended = (blended * 255).astype(np.uint8)
+        elif blend_mode == "屏幕":  # 屏幕模式
+            # 屏幕模式：1 - (1-a)*(1-b)
+            inv1 = 1.0 - self.img1/255.0
+            inv2 = 1.0 - self.img2/255.0
+            blended = (1.0 - inv1 * inv2) * 255
+            blended = blended.astype(np.uint8)
+        elif blend_mode == "叠加":  # 叠加模式
+            # 简单实现叠加混合
+            blended = np.zeros_like(self.img1)
+            for i in range(3):  # 对每个通道
+                blended[:,:,i] = np.where(
+                    self.img1[:,:,i] < 128,
+                    (self.img1[:,:,i] * self.img2[:,:,i]) // 128,
+                    255 - ((255 - self.img1[:,:,i]) * (255 - self.img2[:,:,i])) // 128
+                )
         
-        # 获取画布大小
+        # 保存当前混合结果用于保存功能
+        self.current_blended = blended
+        
+        # 将OpenCV BGR格式转换为RGB
+        rgb_image = cv2.cvtColor(blended, cv2.COLOR_BGR2RGB)
+        
+        # 转换为PIL图像以显示在Tkinter上
+        pil_img = Image.fromarray(rgb_image)
+        
+        # 调整图片大小以适应画布
         canvas_width = self.canvas.winfo_width()
         canvas_height = self.canvas.winfo_height()
         
-        # 如果画布尚未完全初始化，使用默认尺寸
-        if canvas_width <= 1:
+        # 确保画布大小有效
+        if canvas_width <= 1 or canvas_height <= 1:
+            # 给定一个默认大小
             canvas_width = 800
-        if canvas_height <= 1:
-            canvas_height = 500
+            canvas_height = 600
         
-        # 计算缩放比例，保持纵横比
+        # 计算缩放比例
         img_width, img_height = pil_img.size
-        scale = min(canvas_width / img_width, canvas_height / img_height)
+        scale_w = canvas_width / img_width
+        scale_h = canvas_height / img_height
+        scale = min(scale_w, scale_h)
+        
+        # 如果图片比画布小，不进行缩放
+        if scale > 1:
+            scale = 1
+        
         new_width = int(img_width * scale)
         new_height = int(img_height * scale)
         
-        # 调整图像大小
-        pil_img = pil_img.resize((new_width, new_height), Image.LANCZOS)
+        if scale != 1:
+            pil_img = pil_img.resize((new_width, new_height), Image.LANCZOS)
         
-        # 保存引用以防止垃圾回收
-        self.photo = ImageTk.PhotoImage(pil_img)
+        # 转换为PhotoImage用于Tkinter
+        self.tk_img = ImageTk.PhotoImage(pil_img)
         
-        # 清除画布并显示新图像
+        # 清除画布并显示新图片
         self.canvas.delete("all")
-        self.canvas.create_image(canvas_width//2, canvas_height//2, anchor=tk.CENTER, image=self.photo)
-    
-    def next_image(self):
-        """显示下一张图像"""
-        if self.serial_numbers and self.current_index < len(self.serial_numbers) - 1:
-            self.current_index += 1
-            self.load_current_images()
-            self.update_status(f"当前图像: {self.serial_numbers[self.current_index]}")
+        
+        # 计算图片在画布中的位置（居中）
+        x = (canvas_width - new_width) // 2
+        y = (canvas_height - new_height) // 2
+        
+        self.canvas.create_image(x, y, anchor=tk.NW, image=self.tk_img)
+        
+        # 更新画布大小
+        self.canvas.config(width=canvas_width, height=canvas_height)
     
     def prev_image(self):
-        """显示上一张图像"""
-        if self.serial_numbers and self.current_index > 0:
-            self.current_index -= 1
-            self.load_current_images()
-            self.update_status(f"当前图像: {self.serial_numbers[self.current_index]}")
+        if self.image_pairs:
+            self.current_index = (self.current_index - 1) % len(self.image_pairs)
+            self.image_listbox.selection_clear(0, tk.END)
+            self.image_listbox.selection_set(self.current_index)
+            self.image_listbox.see(self.current_index)
+            self.display_current_image()
+    
+    def next_image(self):
+        if self.image_pairs:
+            self.current_index = (self.current_index + 1) % len(self.image_pairs)
+            self.image_listbox.selection_clear(0, tk.END)
+            self.image_listbox.selection_set(self.current_index)
+            self.image_listbox.see(self.current_index)
+            self.display_current_image()
+    
+    def save_overlay_image(self):
+        if not hasattr(self, 'current_blended') or self.current_blended is None:
+            messagebox.showerror("错误", "没有可保存的叠加图像")
+            return
+        
+        # 获取当前图片名称
+        if self.image_pairs:
+            name = self.image_pairs[self.current_index][0]
+            default_name = f"{name}_overlay.png"
+        else:
+            default_name = "overlay.png"
+        
+        # 打开文件保存对话框
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=[("PNG文件", "*.png"), ("JPEG文件", "*.jpg"), ("所有文件", "*.*")],
+            initialfile=default_name
+        )
+        
+        if file_path:
+            # 保存图像
+            try:
+                cv2.imwrite(file_path, self.current_blended)
+                messagebox.showinfo("成功", f"叠加图像已保存到:\n{file_path}")
+            except Exception as e:
+                messagebox.showerror("保存失败", f"无法保存图像: {str(e)}")
+                
+    def run(self):
+        # 设置窗口的响应函数，当窗口大小改变时更新图像
+        self.root.bind("<Configure>", lambda e: self.update_overlay() if e.widget == self.root else None)
+        
+        # 更好的主题支持（如果可用）
+        try:
+            self.root.tk.call("source", "azure.tcl")
+            self.root.tk.call("set_theme", "light")
+        except:
+            pass
+        
+        # 启动主循环
+        self.root.mainloop()
+
+
+def main():
+    root = tk.Tk()
+    app = ImageOverlayApp(root)
+    app.run()
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = ImageViewer(root)
-    root.mainloop()
+    main()
