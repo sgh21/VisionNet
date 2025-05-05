@@ -431,8 +431,8 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                 n_vis = min(4, batch_size)
                 
                 # 可视化原始图像和变换后的图像
-                img1_vis = denormalize_image(img1[:n_vis])
-                img2_vis = denormalize_image(img2[:n_vis])
+                img1_vis = denormalize_image(high_res_img1[:n_vis])
+                img2_vis = denormalize_image(high_res_img2[:n_vis])
                 img2_trans_vis = denormalize_image(img2_trans[:n_vis])
                 
                 # 计算差异图像

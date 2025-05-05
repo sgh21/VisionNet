@@ -303,7 +303,7 @@ class TransMAE(nn.Module):
             mode='bilinear',  # 对于掩码，建议使用'nearest'或'bilinear'
             align_corners=False
         )
-    def forward_pred(self, x1, x2, mask1=None, mask2=None, mask_ratio=0.75, scale_factors=None):
+    def forward_pred(self, x1, x2, mask_ratio=0.75, scale_factors=None, **kwargs):
         """
         预测变换参数
         
@@ -317,15 +317,19 @@ class TransMAE(nn.Module):
         Returns:
             pred: 预测的变换参数 [B, 5] (theta, cx, cy, tx, ty)
         """
-
-        if self.use_mask_weight and mask1 is not None and mask2 is not None:
-            # 将掩码从原始尺寸下采样到目标尺寸
+        mask1 = kwargs.get('mask1', None) # [B, 1, H, W]
+        mask2 = kwargs.get('mask2', None) # [B, 1, H, W]
+        if mask1 is not None and mask2 is not None:
+            # 下采样掩码
             mask1_ds = self.downsample_mask(mask1, target_size=(x1.shape[2], x1.shape[3]))
             mask2_ds = self.downsample_mask(mask2, target_size=(x2.shape[2], x2.shape[3]))
-            # 计算掩码的平均值
+            # 仅保留掩码的第一个通道，作为灰度掩码
+            threshold = 0.1
+            mask1_ds = (mask1_ds > threshold).float()
+            mask2_ds = (mask2_ds > threshold).float()
             x1 = x1 * mask1_ds
             x2 = x2 * mask2_ds
-        
+            
         # Encoder features
         feat1, _mask1, _id_restore1, _ids_keep1 = self.encoder(x1, mask_ratio)  # [B, N, C] 
         keep_mask = {
@@ -613,7 +617,6 @@ class TransMAE(nn.Module):
     def forward(self, x1, x2, 
                 high_res_x1=None, high_res_x2=None, 
                 sample_contourl1=None, sample_contourl2=None,
-                mask1=None, mask2=None,
                 mask_ratio=0.75, CXCY=None, 
                 method='gaussian', **kwargs):
         """
@@ -629,9 +632,8 @@ class TransMAE(nn.Module):
             x1 = self.illumination_alignment(x1, x2)
         
         # 从低分辨率图像预测变换参数
-        pred = self.forward_pred(x1, x2, mask1=mask1, mask2=mask2, mask_ratio=mask_ratio)
-        # 应用变换到低分辨率图像（用于可视化）
-        x2_trans = self.forward_transfer(x2, pred, CXCY=CXCY)
+        pred = self.forward_pred(x1, x2, mask_ratio=mask_ratio, **kwargs)
+
         # 计算损失 - 优先使用高分辨率图像
         if high_res_x1 is not None and high_res_x2 is not None:
             # 应用相同的变换参数到高分辨率图像
@@ -644,10 +646,13 @@ class TransMAE(nn.Module):
                 params=pred, 
                 CXCY=CXCY,
                 method=method,
-                mask1=mask1,
-                mask2=mask2,
+                **kwargs,
                 )
+            
+            x2_trans = high_res_x2_trans
         else:
+            # 应用变换到低分辨率图像（用于可视化）
+            x2_trans = self.forward_transfer(x2, pred, CXCY=CXCY)
             # 回退到低分辨率损失
             trans_diff_loss = self.forward_loss(
                 x1, 
@@ -655,8 +660,7 @@ class TransMAE(nn.Module):
                 params=pred, 
                 CXCY=CXCY,
                 method=method,
-                mask1=mask1,
-                mask2=mask2,
+                **kwargs,
                 )
         chamfer_loss = 0
         if self.use_chamfer_dist and sample_contourl1 is not None and sample_contourl2 is not None:

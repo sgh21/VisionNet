@@ -407,8 +407,8 @@ def test_terrace_map():
         return
     
     # Load test images
-    rgb_img_path = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/rgb_images/image_4030P_0.png"
-    mask_img_path = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/touch_images_mask_process/gel_image_4030P_0.png"
+    rgb_img_path = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/rgb_images/image_4030P_5.png"
+    mask_img_path = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision_touch/train/touch_images_mask_process/gel_image_4030P_5.png"
     
     from config import EXPANSION_SIZE
     # Load RGB image and mask

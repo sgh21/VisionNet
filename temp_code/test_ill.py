@@ -7,6 +7,7 @@ import torchvision.transforms as transforms
 import numpy as np
 from PIL import Image
 import random
+import cv2
 
 # 添加项目根目录到系统路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -51,7 +52,9 @@ def visualize_alignment_effects(img1, img2, save_path=None):
     # 2. 图像2全局均值和方差对齐到图像1
     img2_global_full = global_aligner_full(img2, img1)
     
-    
+    # 如果大小不一致，调整大小
+    if img1.size() != img2.size():
+        img2 = torch.nn.functional.interpolate(img2, size=img1.shape[2:], mode='bilinear', align_corners=False)
     # 计算差异图
     diff_original = torch.abs(img1 - img2).mean(dim=1, keepdim=True)
     diff_global_mean = torch.abs(img1 - img2_global_mean).mean(dim=1, keepdim=True)
@@ -166,8 +169,8 @@ def visualize_alignment_effects(img1, img2, save_path=None):
     
     plt.tight_layout()
     
-    # 直方图可视化
-    fig_hist = plt.figure(figsize=(16, 10))
+    # RGB直方图可视化
+    fig_hist_rgb = plt.figure(figsize=(16, 10))
     
     # 为每个通道创建直方图
     channels = ['Red', 'Green', 'Blue']
@@ -179,7 +182,7 @@ def visualize_alignment_effects(img1, img2, save_path=None):
     colors = ['r', 'g', 'b']
     
     for i in range(3):  # 对于每个通道
-        ax = fig_hist.add_subplot(3, 1, i+1)
+        ax = fig_hist_rgb.add_subplot(3, 1, i+1)
         
         for j, (img, label) in enumerate(zip(images_for_hist, labels_for_hist)):
             # 提取当前通道
@@ -196,6 +199,86 @@ def visualize_alignment_effects(img1, img2, save_path=None):
         ax.grid(alpha=0.3)
     
     plt.tight_layout()
+    fig_hist_rgb.suptitle('RGB Color Space Analysis', fontsize=16)
+    plt.subplots_adjust(top=0.95)
+    
+    # 新增：HSV色彩空间分析
+    fig_hist_hsv = plt.figure(figsize=(16, 10))
+    
+    # 将图像转换为HSV色彩空间
+    images_hsv = []
+    for img in images_for_hist:
+        # 确保范围在0-255之间的uint8类型
+        img_uint8 = (img * 255).astype(np.uint8)
+        img_hsv = cv2.cvtColor(img_uint8, cv2.COLOR_RGB2HSV)
+        images_hsv.append(img_hsv)
+    
+    hsv_channels = ['Hue', 'Saturation', 'Value']
+    
+    for i in range(3):  # 对于每个HSV通道
+        ax = fig_hist_hsv.add_subplot(3, 1, i+1)
+        
+        for j, (img, label) in enumerate(zip(images_hsv, labels_for_hist)):
+            # 提取当前通道
+            channel_data = img[:, :, i].flatten()
+            
+            # 对于色相通道，范围是0-180（在OpenCV中）
+            bins = 36 if i == 0 else 50
+            range_val = (0, 180) if i == 0 else (0, 255)
+            
+            # 绘制直方图
+            ax.hist(channel_data, bins=bins, alpha=0.3, label=label, range=range_val)
+        
+        # 添加标题和标签
+        ax.set_title(f'{hsv_channels[i]} Channel Distribution')
+        ax.set_xlabel('Value')
+        ax.set_ylabel('Frequency')
+        ax.legend()
+        ax.grid(alpha=0.3)
+    
+    plt.tight_layout()
+    fig_hist_hsv.suptitle('HSV Color Space Analysis', fontsize=16)
+    plt.subplots_adjust(top=0.95)
+    
+    # 新增：LAB色彩空间分析
+    fig_hist_lab = plt.figure(figsize=(16, 10))
+    
+    # 将图像转换为LAB色彩空间
+    images_lab = []
+    for img in images_for_hist:
+        # 确保范围在0-255之间的uint8类型
+        img_uint8 = (img * 255).astype(np.uint8)
+        img_lab = cv2.cvtColor(img_uint8, cv2.COLOR_RGB2LAB)
+        images_lab.append(img_lab)
+    
+    lab_channels = ['Lightness', 'A (Green-Red)', 'B (Blue-Yellow)']
+    
+    for i in range(3):  # 对于每个LAB通道
+        ax = fig_hist_lab.add_subplot(3, 1, i+1)
+        
+        for j, (img, label) in enumerate(zip(images_lab, labels_for_hist)):
+            # 提取当前通道
+            channel_data = img[:, :, i].flatten()
+            
+            # 对于L通道范围是0-100，对于a和b通道范围是-128到127
+            if i == 0:  # L通道
+                range_val = (0, 255)  # OpenCV中缩放为0-255
+            else:       # a和b通道
+                range_val = (0, 255)  # OpenCV中偏移缩放为0-255
+            
+            # 绘制直方图
+            ax.hist(channel_data, bins=50, alpha=0.3, label=label, range=range_val)
+        
+        # 添加标题和标签
+        ax.set_title(f'{lab_channels[i]} Channel Distribution')
+        ax.set_xlabel('Value')
+        ax.set_ylabel('Frequency')
+        ax.legend()
+        ax.grid(alpha=0.3)
+    
+    plt.tight_layout()
+    fig_hist_lab.suptitle('LAB Color Space Analysis', fontsize=16)
+    plt.subplots_adjust(top=0.95)
     
     # 保存或显示结果
     if save_path:
@@ -210,10 +293,20 @@ def visualize_alignment_effects(img1, img2, save_path=None):
             print(f"Saving: {save_file}")
             fig_bar.savefig(save_file, dpi=300, bbox_inches='tight')
             
-            # 保存直方图
-            save_file = f"{save_path}_histograms.png"
+            # 保存RGB直方图
+            save_file = f"{save_path}_rgb_histograms.png"
             print(f"Saving: {save_file}")
-            fig_hist.savefig(save_file, dpi=300, bbox_inches='tight')
+            fig_hist_rgb.savefig(save_file, dpi=300, bbox_inches='tight')
+            
+            # 保存HSV直方图
+            save_file = f"{save_path}_hsv_histograms.png"
+            print(f"Saving: {save_file}")
+            fig_hist_hsv.savefig(save_file, dpi=300, bbox_inches='tight')
+            
+            # 保存LAB直方图
+            save_file = f"{save_path}_lab_histograms.png"
+            print(f"Saving: {save_file}")
+            fig_hist_lab.savefig(save_file, dpi=300, bbox_inches='tight')
             
             print(f"All results saved to: {save_path}_*.png")
         except Exception as e:
@@ -233,8 +326,8 @@ def test_with_images(img1_path, img2_path, save_path=None):
 
 def main():
     parser = argparse.ArgumentParser(description='测试光照对齐效果')
-    parser.add_argument('--img1', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/new_vision_touch/original/image_crop_10_3524P/image_3524P_300.png',help='第一张图像路径')
-    parser.add_argument('--img2', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/new_vision_touch/original/image_crop_20_3524P/image_3524P_600.png', help='第二张图像路径')
+    parser.add_argument('--img1', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/new_vision_touch/original/bright.png',help='第一张图像路径')
+    parser.add_argument('--img2', type=str, default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/new_vision_touch/original/dark.png', help='第二张图像路径')
     parser.add_argument('--samples', type=int, default=3, help='从数据集中抽取的样本数量')
     parser.add_argument('--save_dir', type=str, default='illumination_alignment_results', 
                        help='保存结果的目录')

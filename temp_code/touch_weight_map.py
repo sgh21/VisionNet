@@ -1014,6 +1014,7 @@ def visualize_flood_fill_regions(image, region_masks, region_stats=None, seed_po
     overlay = cv2.addWeighted(vis_img, 1 - alpha, result, alpha, 0)
     
     return overlay
+
 # 修改主函数以包含实例分割
 def main():
     # img_path = '/home/sgh/data/WorkSpace/VisionNet/dataset/result/gel_image_3560P2.png'
@@ -1043,7 +1044,7 @@ def main():
     # 使用直方图均衡化增强对比度
     _, equalization_diff = adaptive_range_enhancement(filtered_diff, percentile_low=0, percentile_high=100, visualize=False)
     
-    
+    # TODO：不再自适应二值化，而是将Mask应用到原图上采样，从而获得灰度图
     # 二值化图像
     ret, binary_diff = binary_threshold(equalization_diff, type='adaptive')
     

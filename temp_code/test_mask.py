@@ -61,6 +61,7 @@ def visualize_mask_effect(img_path, touch_mask_path, patch_size=16, save_path=No
         expansion_size=EXPANSION_SIZE,
     )
     terrace_map, _ = terrace_map_generator(touch_mask, serial=serial)
+    # print(f"地形图生成完成，形状: {terrace_map.shape}")
     touch_mask_tensor = to_tensor(terrace_map).unsqueeze(0)  # [1, 1, H, W]
     touch_mask_tensor = downsample_mask(touch_mask_tensor, target_size=(224, 224))  # 下采样掩码
     

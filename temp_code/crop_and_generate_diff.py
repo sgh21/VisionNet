@@ -1,4 +1,4 @@
-from utils.touch_weight_map import *
+from temp_code.touch_weight_map import *
 from utils.VisionUtils import rotate_images
 import cv2
 import re

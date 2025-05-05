@@ -1,6 +1,7 @@
 import os
 import random
 from PIL import Image
+import numpy as np
 import torch
 from torch.utils.data import Dataset
 import random
@@ -249,6 +250,34 @@ class TransMAEDataset(Dataset):
         with open(label_path, 'r') as f:
             x, y, rz = map(float, f.read().strip().split(','))
         return torch.tensor([x, y, rz], dtype=torch.float32)
+    
+    def sample_image_with_terrace_map(self, img, terrace_map, threshold=0.1):
+        """
+        使用灰度地形图(terrace_map)对RGB图像进行采样
+        
+        参数:
+            img: RGB图像numpy数组，形状为[H, W, 3]
+            terrace_map: 灰度地形图numpy数组，形状为[H, W]
+            threshold: 灰度阈值，默认为0.1
+            
+        返回:
+            采样后的RGB图像，形状与输入图像相同
+        """
+        # 确保terrace_map是二维数组
+        if len(terrace_map.shape) > 2:
+            terrace_map = terrace_map.squeeze()
+        
+        # 创建掩码（大于阈值的位置为1，其他位置为0）
+        mask = (terrace_map > threshold).astype(np.float32)
+        
+        # 扩展掩码维度以匹配RGB图像的通道数
+        mask_expanded = np.expand_dims(mask, axis=-1)  # 变成 [H, W, 1]
+        mask_expanded = np.repeat(mask_expanded, 3, axis=-1)  # 变成 [H, W, 3]
+        
+        # 应用掩码
+        sampled_img = img * mask_expanded
+        
+        return sampled_img
     
 class CrossMAEDataset(Dataset):
     """CrossMAE训练数据集"""
