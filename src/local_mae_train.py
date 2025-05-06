@@ -509,8 +509,8 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                         pc2 = mask2_pointcloud[i].detach().cpu().numpy()
                         
                         # 设置示例图像名称
-                        img_name1 = f"原始点云"
-                        img_name2 = f"变换后点云"
+                        img_name1 = f"Original point cloud"
+                        img_name2 = f"Transformed point cloud"
                         
                         # 生成可视化图像张量
                         vis_tensor = visualize_point_clouds_for_tensorboard(
