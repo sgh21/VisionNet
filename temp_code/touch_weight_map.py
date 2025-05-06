@@ -309,11 +309,11 @@ def morphological_operations(image, operation='open_close', kernel_size=3, itera
     if len(image.shape) > 2:
         image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
     
-    # 如果输入不是二值图像，进行二值化处理
-    if image.dtype != np.uint8 or np.max(image) > 1:
-        _, binary_image = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    else:
-        binary_image = image.copy()
+    # # 如果输入不是二值图像，进行二值化处理
+    # if image.dtype != np.uint8 or np.max(image) > 1:
+    #     _, binary_image = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # else:
+    binary_image = image.copy()
     
     # 创建结构元素
     kernel = np.ones((kernel_size, kernel_size), np.uint8)
@@ -1020,7 +1020,7 @@ def main():
     # img_path = '/home/sgh/data/WorkSpace/VisionNet/dataset/result/gel_image_3560P2.png'
     # img_template_path = '/home/sgh/data/WorkSpace/VisionNet/dataset/result/gel_image_raw1.png'
     
-    img_path = '/home/sgh/data/WorkSpace/BTBInsertionV2/documents/train_data_0411/original/gel_images_crop_01_3560P/gel_image_3560P_156.png'
+    img_path = '/home/sgh/data/WorkSpace/BTBInsertionV2/documents/train_data_0411/original/gel_images_crop_01_3530P/gel_image_3530P_160.png'
     img_template_path = '/home/sgh/data/WorkSpace/VisionNet/dataset/result/gel_image_template.png'
     # 创建输出目录
     output_dir = './output'
@@ -1043,14 +1043,14 @@ def main():
     grad_map = compute_gradient_map(filtered_diff, method='sobel', ksize=3, visualize=False)
     # 使用直方图均衡化增强对比度
     _, equalization_diff = adaptive_range_enhancement(filtered_diff, percentile_low=0, percentile_high=100, visualize=False)
-    
+   
     # TODO：不再自适应二值化，而是将Mask应用到原图上采样，从而获得灰度图
     # 二值化图像
     ret, binary_diff = binary_threshold(equalization_diff, type='adaptive')
     
     # 可视化初始结果
-    images_list1 = [img_template, img, diff_map, filtered_diff,  binary_diff, grad_map]
-    titles_list1 = ['template', 'dst', 'diff_map', 'NLM-filtered',  'binary_diff', 'grad_map' ]
+    images_list1 = [img_template, img, diff_map, filtered_diff,  binary_diff, equalization_diff]
+    titles_list1 = ['template', 'dst', 'diff_map', 'NLM-filtered',  'binary_diff', 'equalization_diff' ]
 
     visualize_images(
         images_list1, 

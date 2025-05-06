@@ -130,8 +130,8 @@ class ImageOverlayApp:
             # 如果两个文件夹都已选择，找出匹配的图片
             if self.folder1 and self.folder2:
                 self.find_matching_images()
-                
     def find_matching_images(self):
+        """查找两个文件夹中的匹配图片，支持字段匹配"""
         # 获取两个文件夹中的所有图片文件
         files1 = self.get_image_files(self.folder1)
         files2 = self.get_image_files(self.folder2)
@@ -140,11 +140,55 @@ class ImageOverlayApp:
         file_dict1 = {os.path.splitext(os.path.basename(f))[0]: f for f in files1}
         file_dict2 = {os.path.splitext(os.path.basename(f))[0]: f for f in files2}
         
-        # 找出匹配的文件
+        # 尝试精确匹配
+        exact_matches = []
+        for name1 in file_dict1:
+            if name1 in file_dict2:
+                exact_matches.append((name1, file_dict1[name1], file_dict2[name1]))
+        
+        # 如果找到足够的精确匹配
+        if len(exact_matches) >= 3:
+            self.image_pairs = exact_matches
+            self.update_image_list()
+            
+            # 显示第一张匹配的图片（如果有）
+            if self.image_pairs:
+                self.current_index = 0
+                self.display_current_image()
+            return
+        
+        # 如果精确匹配不够，尝试字段匹配
+        # 步骤1: 将所有文件名按字段分割，准备匹配
+        parsed_files1 = []
+        parsed_files2 = []
+        
+        # 解析文件1
+        for name, path in file_dict1.items():
+            fields = self._parse_filename(name)
+            parsed_files1.append((name, path, fields))
+        
+        # 解析文件2
+        for name, path in file_dict2.items():
+            fields = self._parse_filename(name)
+            parsed_files2.append((name, path, fields))
+        
+        # 步骤2: 为每个文件1中的文件找最佳匹配
         self.image_pairs = []
-        for name in file_dict1:
-            if name in file_dict2:
-                self.image_pairs.append((name, file_dict1[name], file_dict2[name]))
+        for name1, path1, fields1 in parsed_files1:
+            best_match = None
+            best_score = 0
+            
+            for name2, path2, fields2 in parsed_files2:
+                # 计算字段匹配得分
+                score = self._calculate_field_similarity(fields1, fields2)
+                
+                if score > best_score:
+                    best_score = score
+                    best_match = (f"{name1} & {name2}", path1, path2, score)
+            
+            # 只添加得分高于阈值的匹配
+            if best_match and best_match[3] > 0.3:  # 阈值可调整
+                self.image_pairs.append(best_match[:3])  # 只保留名称和路径
         
         # 更新列表显示
         self.update_image_list()
@@ -153,8 +197,124 @@ class ImageOverlayApp:
         if self.image_pairs:
             self.current_index = 0
             self.display_current_image()
+            messagebox.showinfo("匹配结果", f"找到 {len(self.image_pairs)} 对匹配的图片")
         else:
             messagebox.showinfo("结果", "未找到匹配的图片")
+
+    def _parse_filename(self, filename):
+        """解析文件名为字段列表，处理常见前缀和分隔符"""
+        # 移除常见前缀
+        for prefix in ['gel_', 'mask_', 'img_', 'proc_']:
+            if filename.startswith(prefix):
+                filename = filename[len(prefix):]
+                break
+        
+        # 按分隔符分割
+        fields = []
+        # 先按下划线分割
+        parts = filename.split('_')
+        
+        for part in parts:
+            # 再按破折号分割
+            subparts = part.split('-')
+            fields.extend(subparts)
+        
+        # 提取纯数字字段
+        numeric_fields = []
+        for field in fields:
+            if field.isdigit():
+                numeric_fields.append(field)
+        
+        # 如果有数字字段，优先返回数字字段
+        if numeric_fields:
+            return numeric_fields
+        else:
+            return fields
+
+    def _calculate_field_similarity(self, fields1, fields2):
+        """计算两组字段之间的相似度"""
+        if not fields1 or not fields2:
+            return 0.0
+        
+        # 特殊情况处理：如果两个字段组完全相同
+        if fields1 == fields2:
+            return 1.0
+        
+        # 计算共有字段数
+        common_fields = set(fields1).intersection(set(fields2))
+        num_common = len(common_fields)
+        
+        # 如果有共同字段，根据共同字段与总字段的比例计算相似度
+        if num_common > 0:
+            total_unique_fields = len(set(fields1).union(set(fields2)))
+            similarity = num_common / total_unique_fields
+            
+            # 为数字字段匹配给予额外权重
+            # 如果都是纯数字字段
+            if all(f.isdigit() for f in fields1) and all(f.isdigit() for f in fields2):
+                digit_similarity = 0
+                
+                # 尝试匹配相同位置的数字
+                min_len = min(len(fields1), len(fields2))
+                matches = 0
+                for i in range(min_len):
+                    if fields1[i] == fields2[i]:
+                        matches += 1
+                
+                if min_len > 0:
+                    digit_similarity = matches / min_len
+                    
+                # 结合基本相似度和数字相似度
+                similarity = (similarity + digit_similarity) / 2
+            
+            return similarity
+        
+        # 如果没有共同字段，尝试字符串相似度
+        # 把所有字段连接起来比较
+        str1 = ''.join(fields1)
+        str2 = ''.join(fields2)
+        
+        # 简单的字符串相似度计算
+        max_len = max(len(str1), len(str2))
+        if max_len == 0:
+            return 0.0
+        
+        # 计算最长公共子串长度
+        # 这里采用简化版本，实际可以用更复杂的算法
+        common_length = 0
+        for i in range(len(str1)):
+            for j in range(len(str2)):
+                k = 0
+                while (i+k < len(str1) and j+k < len(str2) and 
+                    str1[i+k] == str2[j+k]):
+                    k += 1
+                common_length = max(common_length, k)
+        
+        return common_length / max_len
+    # def find_matching_images(self):
+    #     # 获取两个文件夹中的所有图片文件
+    #     files1 = self.get_image_files(self.folder1)
+    #     files2 = self.get_image_files(self.folder2)
+        
+    #     # 提取文件名（不含扩展名）
+    #     file_dict1 = {os.path.splitext(os.path.basename(f))[0]: f for f in files1}
+    #     file_dict2 = {os.path.splitext(os.path.basename(f))[0]: f for f in files2}
+        
+    #     # 找出匹配的文件
+    #     self.image_pairs = []
+    #     for name in file_dict1:
+    #         if name in file_dict2:
+    #             self.image_pairs.append((name, file_dict1[name], file_dict2[name]))
+        
+    #     # 更新列表显示
+    #     self.update_image_list()
+        
+    #     # 显示第一张匹配的图片（如果有）
+    #     if self.image_pairs:
+    #         self.current_index = 0
+    #         self.display_current_image()
+    #     else:
+    #         messagebox.showinfo("结果", "未找到匹配的图片")
     
     def get_image_files(self, folder):
         image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp']

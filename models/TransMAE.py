@@ -324,12 +324,12 @@ class TransMAE(nn.Module):
             mask1_ds = self.downsample_mask(mask1, target_size=(x1.shape[2], x1.shape[3]))
             mask2_ds = self.downsample_mask(mask2, target_size=(x2.shape[2], x2.shape[3]))
             # 仅保留掩码的第一个通道，作为灰度掩码
-            threshold = 0.1
+            threshold = 0.05
             mask1_ds = (mask1_ds > threshold).float()
             mask2_ds = (mask2_ds > threshold).float()
             x1 = x1 * mask1_ds
             x2 = x2 * mask2_ds
-            
+
         # Encoder features
         feat1, _mask1, _id_restore1, _ids_keep1 = self.encoder(x1, mask_ratio)  # [B, N, C] 
         keep_mask = {
@@ -339,14 +339,6 @@ class TransMAE(nn.Module):
         feat2, _mask2, _id_restore2, _ids_keep2 = self.encoder(x2, mask_ratio, keep_mask)  # [B, N, C]
         
         assert torch.sum(_mask1-_mask2) < 1e-6
-
-        # if self.use_mask_weight and mask1 is not None and mask2 is not None:
-        #     print("Using mask weight")
-        #     # 使用掩码权重
-        #     mask_weight1 = self.mask_patch_pooling(feat1, mask1)
-        #     mask_weight2 = self.mask_patch_pooling(feat2, mask2)
-        #     feat1 = feat1 * mask_weight1
-        #     feat2 = feat2 * mask_weight2
 
         # Cross attention 互相算注意力更有效
         # !: 根据官方的实现，在交叉注意力前加入了LayerNorm
@@ -564,7 +556,7 @@ class TransMAE(nn.Module):
             batch_weight_map = self.forwrd_weights_map(shape, device, method=method, **kwargs)
             # 应用变换到权重图
             transformed_weight_map = self.forward_transfer(batch_weight_map, params, CXCY=CXCY)
-        # TODO: mask不平滑，应该对边缘，边框区域，给与更高权重，边界给与部分权重
+        
         elif method == 'touch_mask' or method == 'rgb_mask':
             mask1 = kwargs.get('mask1', None) # [B, 1, H, W]
             mask2 = kwargs.get('mask2', None) # [B, 1, H, W]

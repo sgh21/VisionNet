@@ -194,11 +194,11 @@ class TouchWeightMapTransform:
         if len(image.shape) > 2:
             image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         
-        # 如果输入不是二值图像，进行二值化处理
-        if image.dtype != np.uint8 or np.max(image) > 1:
-            _, binary_image = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        else:
-            binary_image = image.copy()
+        # # 如果输入不是二值图像，进行二值化处理
+        # if image.dtype != np.uint8 or np.max(image) > 1:
+        #     _, binary_image = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # else:
+        binary_image = image.copy()
         
         # 创建结构元素
         kernel = np.ones((kernel_size, kernel_size), np.uint8)
@@ -382,13 +382,19 @@ class TouchWeightMapTransform:
         
         # 2. 计算与模板的差异图
         diff_map = self._compute_difference_map(self.template_img, img_np)
-        
+        # !：临时添加
+        diff_map = self._morphological_operations(
+            diff_map,
+            operation='open',
+            kernel_size=3,
+            iterations_open=1,
+        )
         # 3. 应用NLM滤波
         filtered_diff = self._apply_nlm_filter(diff_map, h=4)
         
         # 4. 对比度增强
         _, enhanced_diff = self._adaptive_range_enhancement(filtered_diff, percentile_low=0, percentile_high=100)
-        
+
         # 5. 二值化图像
         binary_diff = self._binary_threshold(enhanced_diff, threshold_type='adaptive')
         
@@ -430,21 +436,33 @@ class TouchWeightMapTransform:
             interpolation=cv2.INTER_NEAREST,
             border_value=0
         )
+
+        gray_transformed = self._transform_and_place(
+            enhanced_diff,
+            canvas_size=self.canvas_size,
+            M=self.M,  # 单位矩阵
+            interpolation=cv2.INTER_CUBIC,
+            border_value=0
+        )
+
         # 10. 根据需要转换格式
         if self.to_tensor:
             # 归一化，使值范围在0-1之间
             if self.normalized:
                 mask_transformed = mask_transformed / 255.0
-                
+                gray_transformed = gray_transformed / 255.0
             # 转换为tensor
             mask_tensor = torch.from_numpy(mask_transformed).float()
+            gray_tensor = torch.from_numpy(gray_transformed).float()
             # 添加通道维度
             if mask_tensor.ndim == 2:
                 mask_tensor = mask_tensor.unsqueeze(0) # [H,W] -> [1,H,W]
+            if gray_tensor.ndim == 2:
+                gray_tensor = gray_tensor.unsqueeze(0) # [H,W] -> [1,H,W]
                 
-            return mask_tensor
+            return mask_tensor, gray_tensor
         else:
-            return mask_transformed
+            return mask_transformed, gray_transformed
 
 class GlobalIlluminationAlignment(nn.Module):
     """
@@ -836,7 +854,7 @@ class TerraceMapGenerator:
         # 生成梯田图
         terrace_map, outer_contour = self.generate_terrace_map(img, serial = serial)
         # print(outer_contour)
-        return self.terrace_map, outer_contour
+        return Image.fromarray(self.terrace_map), outer_contour
         
     def _convert_to_numpy(self, mask_img: Union[str, Image.Image, np.ndarray]) -> np.ndarray:
         """
@@ -1883,8 +1901,12 @@ def convert_all_img(img_dir, output_dir, transform):
     # 尝试处理一张图像
     from PIL import Image
 
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    binary_output_dir = os.path.join(output_dir, 'binary')
+    gray_output_dir = os.path.join(output_dir, 'gray')
+    if not os.path.exists(binary_output_dir):
+        os.makedirs(binary_output_dir)
+    if not os.path.exists(gray_output_dir):
+        os.makedirs(gray_output_dir)
     
     # 首先获取所有图像文件
     image_files = [f for f in os.listdir(img_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
@@ -1894,9 +1916,12 @@ def convert_all_img(img_dir, output_dir, transform):
     for filename in tqdm(image_files, desc="处理图像", unit="张"):
         img_path = os.path.join(img_dir, filename)
         img = Image.open(img_path).convert('RGB')
-        transformed_img = transform(img)
-        output_path = os.path.join(output_dir, filename)
-        cv2.imwrite(output_path, transformed_img)
+        transformed_binary, transformed_gray  = transform(img)
+        binary_output_path = os.path.join(binary_output_dir, filename)
+        gray_output_path = os.path.join(gray_output_dir, filename)
+        cv2.imwrite(binary_output_path, transformed_binary)
+        cv2.imwrite(gray_output_path, transformed_gray)
+
     
     print(f"✓ 已将 {len(image_files)} 张图像处理并保存到 {output_dir}")
 
@@ -1951,17 +1976,40 @@ def convert_all_img2mask(img_dir, output_dir, transform):
 #     output_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/new_vision_touch/unpack/val/val_all/touch_masks"
 #     convert_all_img(img_dir=img_dir, output_dir=output_dir, transform=transform)
 
-# *: 根据视觉生成vision_masks
+# # *: 根据视觉生成vision_masks
+# if __name__ == '__main__':
+    
+#     from config import PARAMS
+#     yolo_model_path = PARAMS['pin_black_model_path']
+
+#     transform = VisionTerraceMapGenerator(
+#         yolo_model_path=yolo_model_path,
+#         return_mask=True,
+#     )
+#     img_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/rgb_images"
+#     output_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/rgb_masks"
+
+#     convert_all_img2mask(img_dir=img_dir, output_dir=output_dir, transform=transform)
+
+
+
+# *: 根据触觉生成touch_masks_gray
 if __name__ == '__main__':
+    # 测试代码
+    img_path = '/home/sgh/data/WorkSpace/VisionNet/dataset/result/gel_image_template.png'
     
     from config import PARAMS
-    yolo_model_path = PARAMS['pin_black_model_path']
-
-    transform = VisionTerraceMapGenerator(
-        yolo_model_path=yolo_model_path,
-        return_mask=True,
+    M = PARAMS['m']
+    transform = TouchWeightMapTransform(
+        template_path=img_path,
+        min_area=500,
+        morph_operation='close_open',
+        min_rectangularity=0.9,
+        M = M,
+        canvas_size=(560, 560),
+        to_tensor=False,
+        normalized=False,
     )
-    img_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/rgb_images"
-    output_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/rgb_masks"
-
-    convert_all_img2mask(img_dir=img_dir, output_dir=output_dir, transform=transform)
+    img_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/touch_images"
+    output_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/masks"
+    convert_all_img(img_dir=img_dir, output_dir=output_dir, transform=transform)
