@@ -557,7 +557,7 @@ class TransMAE(nn.Module):
             # 应用变换到权重图
             transformed_weight_map = self.forward_transfer(batch_weight_map, params, CXCY=CXCY)
         
-        elif method == 'touch_mask' or method == 'rgb_mask':
+        elif method == 'touch_mask' or method == 'rgb_mask' or method == 'touch_mask_gray':
             mask1 = kwargs.get('mask1', None) # [B, 1, H, W]
             mask2 = kwargs.get('mask2', None) # [B, 1, H, W]
             if mask1 is None or mask2 is None:

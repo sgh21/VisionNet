@@ -1283,7 +1283,195 @@ class VisionTerraceMapGenerator:
             blank_mask = np.zeros(img.size[::-1], dtype=np.uint8)
             mask_pil = Image.fromarray(blank_mask)
             return mask_pil
+        
+class TerrainPointCloud(nn.Module):
+    """
+    将灰度地形图采样为3D点云的模块，只采集阈值以上的有效区域
+    
+    参数:
+        target_points (int): 目标点云数量，默认1024点
+        min_value (float): 最小有效值阈值，低于此值被视为背景
+        stride (int): 初始间隔采样的步长，默认为4，表示每隔4个像素采样一次
+        normalize_coords (bool): 是否将坐标归一化到[-1,1]范围
+        importance_scaling (float): 重要性采样的缩放因子，值越大，对高值区域越关注
+        device (torch.device): 计算设备
+    """
+    def __init__(
+        self, 
+        target_points: int = 1024,
+        min_value: float = 0.05,
+        stride: int = 4, 
+        normalize_coords: bool = True,
+        importance_scaling: float = 2.0,
+        device: torch.device = None
+    ):
+        super().__init__()
+        self.target_points = target_points
+        self.min_value = min_value
+        self.stride = stride
+        self.normalize_coords = normalize_coords
+        self.importance_scaling = importance_scaling
+        self.device = device if device is not None else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        将灰度地形图转换为点云，只采集阈值以上的区域
+        
+        参数:
+            x (torch.Tensor): 灰度地形图，形状为[B, 1, H, W]
+            
+        返回:
+            torch.Tensor: 三维点云，形状为 [B, N, 3]
+        """
+        batch_size, channels, height, width = x.shape
+        assert channels == 1, "输入应为单通道灰度图"
+        
+        # 创建批处理点云列表
+        batch_point_clouds = []
+        
+        for b in range(batch_size):
+            # 获取单个图像
+            terrain = x[b, 0]  # [H, W]
+            
+            # 步骤1: 按步长进行间隔采样，减少初始点数
+            sampled_terrain = terrain[::self.stride, ::self.stride]  # [H//stride, W//stride]
+            sampled_h, sampled_w = sampled_terrain.shape
+            
+            # 创建对应的坐标网格，并考虑步长的影响
+            h_indices = torch.arange(0, height, self.stride, device=self.device)
+            w_indices = torch.arange(0, width, self.stride, device=self.device)
+            grid_h, grid_w = torch.meshgrid(h_indices, w_indices, indexing='ij')
+            
+            # 步骤2: 将地形图展平为点集
+            values = sampled_terrain.reshape(-1)  # [(H/stride) * (W/stride)]
+            coords_h = grid_h.reshape(-1).float()  # [(H/stride) * (W/stride)]
+            coords_w = grid_w.reshape(-1).float()  # [(H/stride) * (W/stride)]
+            
+            # 步骤3: 筛选有效点（大于阈值的点）
+            valid_mask = values > self.min_value
 
+            while valid_mask.sum() < self.target_points and self.min_value > 1e-5:
+                self.min_value *= 0.5
+                valid_mask = values > self.min_value
+            
+            # 提取有效点的坐标和值
+            valid_values = values[valid_mask]
+            valid_h = coords_h[valid_mask]
+            valid_w = coords_w[valid_mask]
+            
+            # 获取有效点的数量
+            n_valid_points = valid_values.shape[0]
+            
+            # 步骤4: 根据有效点数量决定处理策略
+            if n_valid_points == 0:
+                # 如果没有有效点，创建少量随机点
+                selected_values = torch.zeros(self.target_points, device=self.device)
+                selected_h = torch.randint(0, height, (self.target_points,), device=self.device).float()
+                selected_w = torch.randint(0, width, (self.target_points,), device=self.device).float()
+            elif n_valid_points <= self.target_points:
+                # 如果有效点少于目标点数，通过重复采样填充
+                repeat_factor = (self.target_points + n_valid_points - 1) // n_valid_points  # 向上取整
+                
+                # 重复valid_values足够次数，然后截取所需数量
+                selected_values = valid_values.repeat(repeat_factor)[:self.target_points]
+                selected_h = valid_h.repeat(repeat_factor)[:self.target_points]
+                selected_w = valid_w.repeat(repeat_factor)[:self.target_points]
+            else:
+                # 如果有效点多于目标点数，根据强度值进行重要性采样
+                
+                # 计算重要性权重 = 值的幂次方
+                importance = valid_values ** self.importance_scaling
+                importance = importance / importance.sum()  # 归一化为概率分布
+                
+                # 使用重要性采样选择点
+                try:
+                    indices = torch.multinomial(importance, self.target_points, replacement=False)
+                except RuntimeError:
+                    # 当所有值相同时，pytorch的multinomial可能会报错，此时用随机采样
+                    indices = torch.randperm(n_valid_points, device=valid_values.device)[:self.target_points]
+                
+                selected_values = valid_values[indices]
+                selected_h = valid_h[indices]
+                selected_w = valid_w[indices]
+            
+            # 步骤5: 坐标归一化（如果需要）
+            if self.normalize_coords:
+                selected_h = (selected_h / (height - 1)) * 2 - 1
+                selected_w = (selected_w / (width - 1)) * 2 - 1
+                
+            # 创建最终点云 [N, 3]，格式为 (x=w, y=h, z=value)
+            point_cloud = torch.stack([selected_w, selected_h, selected_values], dim=1)
+            
+            batch_point_clouds.append(point_cloud)
+        
+        # 步骤6: 合并批次点云 [B, N, 3]
+        return torch.stack(batch_point_clouds, dim=0)
+
+    def visualize(self, grayscale_tensor, point_cloud=None, n_samples=1):
+        """
+        可视化灰度图和采样后的点云
+        
+        参数:
+            grayscale_tensor: 形状为 [B, 1, H, W] 的灰度图张量
+            point_cloud: 形状为 [B, N, 3] 的点云张量，如果为None则内部生成
+            n_samples: 要可视化的样本数
+        """
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+        
+        n_vis = min(grayscale_tensor.size(0), n_samples)
+        
+        if point_cloud is None:
+            point_cloud = self.forward(grayscale_tensor[:n_vis])
+        
+        for i in range(n_vis):
+            # 转换为numpy
+            gray_np = grayscale_tensor[i, 0].cpu().numpy()
+            points_np = point_cloud[i].detach().cpu().numpy()
+            
+            # 创建可视化
+            fig = plt.figure(figsize=(15, 5))
+            
+            # 原始灰度图
+            ax1 = fig.add_subplot(131)
+            ax1.imshow(gray_np, cmap='gray')
+            ax1.set_title('Original Grayscale Image')
+            ax1.axis('off')
+            
+            # 采样点在2D上的位置
+            ax2 = fig.add_subplot(132)
+            ax2.imshow(gray_np, cmap='gray')
+            
+            # 如果坐标已归一化，需要转换回原始坐标
+            if self.normalize_coords:
+                h = ((points_np[:, 1] + 1) / 2) * (gray_np.shape[0] - 1)
+                w = ((points_np[:, 0] + 1) / 2) * (gray_np.shape[1] - 1)
+            else:
+                h = points_np[:, 1]
+                w = points_np[:, 0]
+                
+            ax2.scatter(w, h, c=points_np[:, 2], s=1, cmap='jet')
+            ax2.set_title('2D Point Cloud')
+            ax2.axis('off')
+            
+            # 3D点云
+            ax3 = fig.add_subplot(133, projection='3d')
+            p = ax3.scatter(points_np[:, 0], points_np[:, 1], points_np[:, 2], 
+                           c=points_np[:, 2], s=5, cmap='jet')
+            ax3.set_title('3D Point Cloud')
+            ax3.set_xlabel('X (width)')
+            ax3.set_ylabel('Y (height)')
+            ax3.set_zlabel('Z (value)')
+            fig.colorbar(p, ax=ax3)
+            
+            plt.tight_layout()
+            plt.show()
+            
+            # 输出点云统计信息
+            print(f"点云形状: {points_np.shape}")
+            print(f"点云Z值范围: 最小={points_np[:, 2].min():.3f}, 最大={points_np[:, 2].max():.3f}")
+            print(f"零值点数: {np.sum(points_np[:, 2] == 0)}/{points_np.shape[0]}")
+    
 class SSIM(nn.Module):
     """
     使用PyTorch实现的结构相似性指数(SSIM)，与NumPy/scipy版本功能一致

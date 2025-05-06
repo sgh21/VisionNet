@@ -17,6 +17,7 @@ class LocalMAEDataset(Dataset):
         root = os.path.join(config.data_path, 'train' if is_train else 'val')
         self.rgb_img_dir = os.path.join(root, 'rgb_images')
         self.touch_img_dir = os.path.join(root, 'touch_masks')
+        self.touch_mask_gray_dir = os.path.join(root, 'touch_masks_gray')
         self.label_dir = os.path.join(root, 'labels')
         self.sample_ratio = config.pair_downsample
         self.high_res_size = config.high_res_size
@@ -93,16 +94,25 @@ class LocalMAEDataset(Dataset):
         img1 = Image.open(os.path.join(self.rgb_img_dir, img1_name)).convert('RGB')
         img2 = Image.open(os.path.join(self.rgb_img_dir, img2_name)).convert('RGB')
 
-        touch_mask1 = Image.open(os.path.join(self.touch_img_dir, 'gel_' + img1_name)).convert('RGB')
-        touch_mask2 = Image.open(os.path.join(self.touch_img_dir, 'gel_' + img2_name)).convert('RGB')
+        touch_mask1 = Image.open(os.path.join(self.touch_img_dir, 'gel_' + img1_name)).convert('L')
+        touch_mask2 = Image.open(os.path.join(self.touch_img_dir, 'gel_' + img2_name)).convert('L')
+        touch_mask1_gray = Image.open(os.path.join(self.touch_mask_gray_dir, 'gel_' + img1_name)).convert('L')
+        touch_mask2_gray = Image.open(os.path.join(self.touch_mask_gray_dir, 'gel_' + img2_name)).convert('L')
+
         # 触觉图像转换
         serial = img1_name.split('_')[-2]
         # TODO: 添加contour误差计算方法
-        terrace_map1, _ = self.terrace_map_generator(touch_mask1, serial = serial)
-        terrace_map2, _ = self.terrace_map_generator(touch_mask2, serial = serial)
+        terrace_map1, sample_contour1 = self.terrace_map_generator(touch_mask1, serial = serial)
+        terrace_map2, sample_contour2 = self.terrace_map_generator(touch_mask2, serial = serial)
         touch_img_mask1 = self.touch_transform(terrace_map1)
-        touch_img_mask2 = self.touch_transform(terrace_map2)
-        
+        touch_img_mask2 = self.touch_transform(terrace_map2) # (1, H, W)
+
+        touch_mask1_gray = self.touch_transform(touch_mask1_gray)
+        touch_mask2_gray = self.touch_transform(touch_mask2_gray)
+        threshold = 0.01
+        touch_img_mask1 = self.sample_image_with_terrace_map(touch_mask1_gray, touch_img_mask1, threshold)
+        touch_img_mask2 = self.sample_image_with_terrace_map(touch_mask2_gray, touch_img_mask2, threshold)
+
         if self.transform:
             img1 = self.transform(img1)
             img2 = self.transform(img2)
@@ -111,14 +121,122 @@ class LocalMAEDataset(Dataset):
         label1 = self._load_label(os.path.join(self.label_dir, self._remove_prefix(img1_name).replace('.png', '.txt')))
         label2 = self._load_label(os.path.join(self.label_dir, self._remove_prefix(img2_name).replace('.png', '.txt')))
         if self.is_eval:
-            return img1, img2, touch_img_mask1, touch_img_mask2, label1, label2, img1_name, img2_name
+            return img1, img2, touch_img_mask1, touch_img_mask2, sample_contour1, sample_contour2, label1, label2, img1_name, img2_name
         
-        return img1, img2,touch_img_mask1, touch_img_mask2, label1, label2
+        return img1, img2,touch_img_mask1, touch_img_mask2, sample_contour1, sample_contour2, label1, label2
 
     def _load_label(self, label_path):
         with open(label_path, 'r') as f:
             x, y, rz = map(float, f.read().strip().split(','))
         return torch.tensor([x, y, rz], dtype=torch.float32)
+    
+    def sample_image_with_terrace_map(self, img, terrace_map, threshold=0.1):
+        """
+        使用灰度地形图(terrace_map)对图像进行采样，支持Tensor和NumPy格式
+        
+        参数:
+            img: 图像数据，可以是Tensor[C,H,W]或NumPy数组[H,W,C]
+            terrace_map: 灰度地形图，可以是Tensor[1,H,W]或NumPy数组[H,W]
+            threshold: 灰度阈值，默认为0.1
+            
+        返回:
+            采样后的图像，与输入格式一致
+        """
+        # 检查数据类型
+        is_tensor = isinstance(img, torch.Tensor)
+        
+        if is_tensor:
+            # 处理Tensor格式数据
+            
+            # 确保terrace_map也是Tensor格式
+            if not isinstance(terrace_map, torch.Tensor):
+                terrace_map = torch.from_numpy(terrace_map).float()
+            
+            # 处理terrace_map的形状，确保它是[H,W]或可以被压缩为[H,W]
+            if terrace_map.dim() > 2:
+                terrace_map = terrace_map.squeeze()
+                
+                # 如果压缩后仍不是2维，取第一个通道
+                if terrace_map.dim() > 2:
+                    terrace_map = terrace_map[0]
+                    
+            # 创建二值掩码
+            mask = (terrace_map > threshold).float()
+            
+            # 适配不同通道维度的图像
+            if img.dim() == 2:  # 单通道图像 [H,W]
+                # 直接乘以掩码
+                sampled_img = img * mask
+            elif img.dim() == 3:  # 多通道图像 [C,H,W]
+                # 扩展掩码维度以匹配图像通道
+                mask = mask.unsqueeze(0)  # [1,H,W]
+                
+                # 确保掩码与输入图像的空间维度匹配
+                if mask.shape[1:] != img.shape[1:]:
+                    mask = torch.nn.functional.interpolate(
+                        mask.unsqueeze(0),  # [1,1,H,W]
+                        size=img.shape[1:],
+                        mode='nearest'
+                    ).squeeze(0)  # [1,H,W]
+                    
+                # 扩展掩码的通道维度以匹配输入通道数
+                mask = mask.expand_as(img)  # [C,H,W]
+                
+                # 应用掩码
+                sampled_img = img * mask
+            else:  # 处理批次数据 [B,C,H,W]
+                # 扩展掩码维度 [H,W] -> [1,1,H,W]
+                mask = mask.unsqueeze(0).unsqueeze(0)
+                
+                # 确保掩码与输入图像的空间维度匹配
+                if mask.shape[2:] != img.shape[2:]:
+                    mask = torch.nn.functional.interpolate(
+                        mask,
+                        size=img.shape[2:],
+                        mode='nearest'
+                    )
+                    
+                # 扩展掩码的批次和通道维度以匹配输入
+                mask = mask.expand(img.shape[0], img.shape[1], -1, -1)  # [B,C,H,W]
+                
+                # 应用掩码
+                sampled_img = img * mask
+                
+        else:
+            # 处理NumPy格式数据
+            
+            # 确保terrace_map是NumPy数组
+            if isinstance(terrace_map, torch.Tensor):
+                terrace_map = terrace_map.detach().cpu().numpy()
+                
+            # 确保terrace_map是二维数组
+            if len(terrace_map.shape) > 2:
+                terrace_map = terrace_map.squeeze()
+                
+                # 如果压缩后仍不是2维，取第一个通道
+                if len(terrace_map.shape) > 2:
+                    terrace_map = terrace_map[0]
+                    
+            # 创建掩码
+            mask = (terrace_map > threshold).astype(np.float32)
+            
+            # 适配不同形状的图像
+            if len(img.shape) == 2:  # 单通道图像
+                sampled_img = img * mask
+            else:  # 多通道图像
+                # 确定通道维度位置
+                if img.shape[-1] in [1, 3, 4]:  # [H,W,C] 格式
+                    # 扩展掩码维度以匹配图像通道
+                    mask_expanded = np.expand_dims(mask, axis=-1)
+                    mask_expanded = np.repeat(mask_expanded, img.shape[-1], axis=-1)
+                else:  # [C,H,W] 格式
+                    mask_expanded = np.expand_dims(mask, axis=0)
+                    mask_expanded = np.repeat(mask_expanded, img.shape[0], axis=0)
+                    
+                # 应用掩码
+                sampled_img = img * mask_expanded
+                
+        return sampled_img
     
 class TransMAEDataset(Dataset):
     def __init__(self, config, is_train=True, transform=None, is_eval = False, use_fix_template = False):
@@ -241,8 +359,8 @@ class TransMAEDataset(Dataset):
             mask1_gray = self.touch_transform(mask1_gray)
             mask2_gray = self.touch_transform(mask2_gray)
             threshold = 0.05
-            touch_img_mask1 = self.sample_image_with_terrace_map(mask1_gray, terrace_map1, threshold)
-            touch_img_mask2 = self.sample_image_with_terrace_map(mask2_gray, terrace_map2, threshold)
+            touch_img_mask1 = self.sample_image_with_terrace_map(mask1_gray, touch_img_mask1, threshold)
+            touch_img_mask2 = self.sample_image_with_terrace_map(mask2_gray, touch_img_mask2, threshold)
         
         # 保存高分辨率版本
         high_res_img1 = self.high_res_transform(img1)

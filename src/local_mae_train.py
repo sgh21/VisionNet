@@ -85,7 +85,7 @@ def get_args_parser():
     parser.add_argument('--edge_enhancement', type=float, default=1.5)
     parser.add_argument('--illumination_alignment', type=bool, default=False)
     parser.add_argument('--gamma', type=float, default=1.0)
-    parser.add_argument('--chamfer_dist', type=bool, default=True)
+    parser.add_argument('--use_chamfer_dist', type=bool, default=True)
     parser.add_argument('--chamfer_dist_type', type=str, default='L2', choices=['L1', 'L2'])
     parser.add_argument('--mask_weight', type=bool, default=True)
     parser.add_argument('--pool_mod', type=str, default='mean', choices=['max', 'mean'])
@@ -263,7 +263,7 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
     if log_writer is not None:
         print('log_dir: {}'.format(log_writer.log_dir))
 
-    for data_iter_step, (img1, img2, touch_img_mask1, touch_img_mask2, label1, label2) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    for data_iter_step, (img1, img2, touch_img_mask1, touch_img_mask2, sample_contour1, sample_contour2, label1, label2) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         
         # 计算当前的训练进度
         iter_progress = data_iter_step / len(data_loader) + epoch
@@ -276,11 +276,14 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
         img2 = img2.to(device, non_blocking=True)
         touch_img_mask1 = touch_img_mask1.to(device, non_blocking=True)
         touch_img_mask2 = touch_img_mask2.to(device, non_blocking=True)
+        sample_contour1 = sample_contour1.to(device, non_blocking=True)
+        sample_contour2 = sample_contour2.to(device, non_blocking=True)
         label1 = label1.to(device, non_blocking=True)
         label2 = label2.to(device, non_blocking=True)
 
+        #todo: 先不用sample_contourl
         with torch.cuda.amp.autocast():  # 混合精度训练
-            pred = model(
+            pred, pointcloud_loss, chamfer_loss = model(
                 img1, img2, 
                 touch_img_mask1 =touch_img_mask1,
                 touch_img_mask2 =touch_img_mask2,
@@ -295,9 +298,12 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
             pred_vector = label_normalize(pred_vector, weight=loss_norm)
             pred_loss = criterion(pred_vector, delta_label)  # 计算损失
 
-            loss = pred_loss
+            loss = pred_loss + args.beta * pointcloud_loss + args.gamma * chamfer_loss  # 计算总损失
 
         loss_value = loss.item()
+        pred_loss_value = pred_loss.item()
+        pointcloud_loss_value = pointcloud_loss.item()
+        chamfer_loss_value = chamfer_loss.item()
 
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value))
@@ -313,16 +319,25 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
         torch.cuda.synchronize()
 
         metric_logger.update(loss=loss_value)  # 更新损失
+        metric_logger.update(pred_loss=pred_loss_value)  # 更新预测损失
+        metric_logger.update(pointcloud_loss=pointcloud_loss_value)  # 更新点云损失
+        metric_logger.update(chamfer_loss=chamfer_loss_value)  # 更新Chamfer损失
 
         lr = optimizer.param_groups[0]["lr"]
         metric_logger.update(lr=lr)  # 更新学习率
 
         loss_value_reduce = misc.all_reduce_mean(loss_value)  # 计算全局损失
+        pred_loss_value_reduce = misc.all_reduce_mean(pred_loss_value)  # 计算全局预测损失
+        pointcloud_loss_value_reduce = misc.all_reduce_mean(pointcloud_loss_value)  # 计算全局点云损失
+        chamfer_loss_value_reduce = misc.all_reduce_mean(chamfer_loss_value)  # 计算全局Chamfer损失
 
         if log_writer is not None and (data_iter_step + 1) % accum_iter == 0:
             epoch_1000x = int((data_iter_step / len(data_loader) + epoch) * 1000)
             log_writer.add_scalar('train/train_loss', loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('train/lr', lr, epoch_1000x)
+            log_writer.add_scalar('train/pred_loss', pred_loss_value_reduce, epoch_1000x)
+            log_writer.add_scalar('train/pointcloud_loss', pointcloud_loss_value_reduce, epoch_1000x)
+            log_writer.add_scalar('train/chamfer_loss', chamfer_loss_value_reduce, epoch_1000x)
 
     metric_logger.synchronize_between_processes()  # 跨进程同步
     print("Averaged stats:", metric_logger)
@@ -335,7 +350,8 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
 
     total_loss = 0
     total_pred_loss = 0
-    total_trans_diff_loss = 0
+    total_pointcloud_loss = 0
+    total_chamfer_loss = 0
     total_x_mae = 0
     total_y_mae = 0
     total_rz_mae = 0
@@ -355,18 +371,20 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
     current_lambda = get_current_lambda(overall_progress, args)
     
     with torch.no_grad():
-        for batch_idx, (img1, img2, touch_img_mask1, touch_img_mask2, label1, label2) in enumerate(metric_logger.log_every(data_loader, 20, header)):
+        for batch_idx, (img1, img2, touch_img_mask1, touch_img_mask2, sample_contour1, sample_contour2, label1, label2) in enumerate(metric_logger.log_every(data_loader, 20, header)):
             img1 = img1.to(device, non_blocking=True)
             img2 = img2.to(device, non_blocking=True)
             touch_img_mask1 = touch_img_mask1.to(device, non_blocking=True)
             touch_img_mask2 = touch_img_mask2.to(device, non_blocking=True)
+            sample_contour1 = sample_contour1.to(device, non_blocking=True)
+            sample_contour2 = sample_contour2.to(device, non_blocking=True)
             label1 = label1.to(device, non_blocking=True)
             label2 = label2.to(device, non_blocking=True)
 
             batch_size = img1.size(0)
             
             with torch.cuda.amp.autocast():
-                pred = model(
+                pred, pointcloud_loss, chamfer_loss = model(
                     img1, img2, 
                     touch_img_mask1=touch_img_mask1,
                     touch_img_mask2=touch_img_mask2,
@@ -386,10 +404,16 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                 pred_vector = label_normalize(pred_vector, weight=loss_norm)
                 pred_loss = criterion(pred_vector, delta_label)  # 计算损失
                 
-                loss = pred_loss
+                loss = pred_loss + args.beta * pointcloud_loss + args.gamma * chamfer_loss  # 计算总损失
                 total_loss += loss.item() * batch_size
+                total_pred_loss += pred_loss.item() * batch_size
+                total_pointcloud_loss += pointcloud_loss.item() * batch_size
+                total_chamfer_loss += chamfer_loss.item() * batch_size
 
             metric_logger.update(loss=loss.item())  # 更新损失
+            metric_logger.update(pred_loss=pred_loss.item())
+            metric_logger.update(pointcloud_loss=pointcloud_loss.item())  # 更新点云损失
+            metric_logger.update(chamfer_loss=chamfer_loss.item())
             
                 
     # 计算平均值
@@ -482,6 +506,8 @@ def main(args):
         pretrained_path=args.mae_pretrained,
         qkv_bias=args.qkv_bias,
         mask_weight=args.mask_weight,
+        use_chamfer_dist=args.use_chamfer_dist,
+        chamfer_dist_type=args.chamfer_dist_type,
     )
 
     model.to(device)

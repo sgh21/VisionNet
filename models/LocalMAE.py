@@ -3,8 +3,9 @@ import torch.nn as nn
 from functools import partial
 from timm.models.vision_transformer import PatchEmbed, Block
 from utils.pos_embed import get_2d_sincos_pos_embed
+from extensions.chamfer_dist import *
 from models.Footshone import MAEEncoder, CrossAttention
-from utils.TransUtils import GlobalIlluminationAlignment as IlluminationAlignment
+from utils.TransUtils import GlobalIlluminationAlignment, TerrainPointCloud
 
 class MAEEncoder(nn.Module):
 
@@ -187,6 +188,8 @@ class LocalMAE(nn.Module):
         norm_layer=partial(nn.LayerNorm, eps=1e-6),
         feature_dim=3,
         drop_rate=0.1,
+        use_chamfer_dist=False,
+        chamfer_dist_type='L2',
         illumination_alignment=False,
         mask_weight=False,
         qkv_bias=False,
@@ -209,7 +212,7 @@ class LocalMAE(nn.Module):
         )
         self.use_illumination_alignment = illumination_alignment
         if self.use_illumination_alignment:
-            self.illumination_alignment = IlluminationAlignment(
+            self.illumination_alignment = GlobalIlluminationAlignment(
                 match_variance=True,
                 per_channel=True,
             )
@@ -219,6 +222,17 @@ class LocalMAE(nn.Module):
         # !: 需要检查注意力模块儿是对谁进行注意力计算的
         self.cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
         
+        self.terrainPointCloud = TerrainPointCloud(
+            target_points=2048,
+            min_value=0.01,
+            stride=2,
+            normalize_coords=True,
+            importance_scaling=2.0
+        )
+
+        self.use_chamfer_dist = use_chamfer_dist
+        if self.use_chamfer_dist:
+            self.chamfer_dist = ChamferDistanceL2() if chamfer_dist_type == 'L2' else ChamferDistanceL1()
         
         self.fc_norm = norm_layer(embed_dim)
         self.feat_norm = norm_layer(embed_dim*2)
@@ -256,6 +270,158 @@ class LocalMAE(nn.Module):
                 if m.bias is not None:
                     torch.nn.init.constant_(m.bias, 0)
 
+    def downsample_mask(self, mask, target_size=(224, 224)):
+        """
+        将掩码从原始尺寸下采样到目标尺寸
+        
+        Args:
+            mask (torch.Tensor): 原始掩码, 形状为 [B, 1, H, W]
+            target_size (tuple): 目标尺寸, 形式为 (height, width)
+            
+        Returns:
+            torch.Tensor: 下采样后的掩码, 形状为 [B, 1, target_height, target_width]
+        """
+        return torch.nn.functional.interpolate(
+            mask, 
+            size=target_size, 
+            mode='bilinear',  # 对于掩码，建议使用'nearest'或'bilinear'
+            align_corners=False
+        )
+    
+    def forward_transfer(self, x, params, CXCY=None):
+        """
+        使用3参数[theta,tx,ty]应用仿射变换到输入图像
+        
+        Args:
+            x (Tensor): 输入数据，[B, C, H, W]
+            params (Tensor): 变换参数，[B, 3] (theta, tx, ty)
+                其中theta是旋转角度(-π, π)
+                [tx, ty]构成平移向量(-1, 1)
+            CXCY:[cx, cy]为旋转中心坐标(-1, 1)
+        Returns:
+            Tensor: 变换后的图像，[B, C, H, W]
+        """
+        B, C, H, W = x.shape
+        device = x.device
+        
+        # 提取参数
+        theta = params[:, 0]  # 旋转角度，(-π, π)范围
+        tx = params[:, 1]  # x方向平移，(-1, 1)范围
+        ty = params[:, 2]  # y方向平移，(-1, 1)范围
+        if CXCY is not None:
+            # 转化为tensor
+            cx = torch.full((B, 1, 1), CXCY[0], device=device)
+            cy = torch.full((B, 1, 1), CXCY[1], device=device)
+        else:
+            # 计算旋转中心
+            cx = torch.zeros(B, 1, 1, device=device)
+            cy = torch.zeros(B, 1, 1, device=device)
+
+        # 构建旋转矩阵
+        cos_theta = torch.cos(theta)
+        sin_theta = torch.sin(theta)
+        
+        # 旋转矩阵元素
+        a = cos_theta
+        b = -sin_theta
+        c = sin_theta
+        d = cos_theta
+        
+        # 创建归一化网格坐标
+        grid_y, grid_x = torch.meshgrid(
+            torch.linspace(-1, 1, H, device=device),
+            torch.linspace(-1, 1, W, device=device),
+            indexing='ij'
+        )
+        
+        # 扩展网格坐标到批次维度
+        grid_x = grid_x.unsqueeze(0).expand(B, H, W)  # [B, H, W]
+        grid_y = grid_y.unsqueeze(0).expand(B, H, W)  # [B, H, W]
+        
+        # 计算行列式(稳定性检查)
+        det = a * d - b * c
+        eps = 1e-6
+        safe_det = torch.where(torch.abs(det) < eps, 
+                           torch.ones_like(det) * eps * torch.sign(det), 
+                           det)
+        
+        # 计算逆变换矩阵(用于逆向映射)
+        inv_a = d / safe_det
+        inv_b = -b / safe_det
+        inv_c = -c / safe_det
+        inv_d = a / safe_det
+        
+        # 将参数调整为[B,1,1]形状，方便广播
+        inv_a = inv_a.view(B, 1, 1)
+        inv_b = inv_b.view(B, 1, 1)
+        inv_c = inv_c.view(B, 1, 1)
+        inv_d = inv_d.view(B, 1, 1)
+        tx = tx.view(B, 1, 1)
+        ty = ty.view(B, 1, 1)
+        
+        # 逆向映射坐标计算（从输出找输入）:
+        # 1. 先应用平移的逆变换
+        x_after_trans = grid_x - tx  
+        y_after_trans = grid_y - ty
+        
+        # 2. 将坐标相对于旋转中心
+        x_centered = x_after_trans - cx
+        y_centered = y_after_trans - cy
+        
+        # 3. 应用旋转的逆变换
+        x_unrotated = inv_a * x_centered + inv_b * y_centered
+        y_unrotated = inv_c * x_centered + inv_d * y_centered
+        
+        # 4. 加回旋转中心
+        x_in = x_unrotated + cx
+        y_in = y_unrotated + cy
+        
+        # 组合成采样网格
+        grid = torch.stack([x_in, y_in], dim=-1)  # [B, H, W, 2]
+        
+        # 使用grid_sample实现双线性插值 bicubic
+        return torch.nn.functional.grid_sample(
+            x, 
+            grid, 
+            mode='bilinear',      
+            padding_mode='zeros', 
+            align_corners=True    
+        )
+    
+    def forward_chamfer_loss(self, xy1, xy2):
+        """
+        计算Chamfer距离损失
+        
+        Args:
+            xy1 (Tensor): 输入图像1，形状为[B, N, 2]
+            xy2 (Tensor): 输入图像2，形状为[B, N, 2]
+        
+        Returns:
+            Tensor: Chamfer距离损失
+        """
+        # 计算Chamfer距离
+        xyz1 = torch.cat([xy1, torch.zeros_like(xy1[:,:, :1])], dim=-1)  # [B, N, 3]
+        xyz2 = torch.cat([xy2, torch.zeros_like(xy2[:,:, :1])], dim=-1)  # [B, N, 3]
+        chamfer_loss = self.chamfer_dist(xyz1, xyz2)
+        return chamfer_loss
+    
+    def forward_pointcloud_loss(self, mask1, mask2):
+        """
+        计算损失函数
+        
+        Args:
+            mask1: 第一张图像的掩码 [B, 1, H, W]
+            mask2: 第二张图像的掩码 [B, 1, H, W]
+        
+        Returns:
+            loss: 损失值
+        """
+        # 计算Chamfer距离损失
+        mask1_pointcloud = self.terrainPointCloud(mask1)  # [B, N, 3]
+        mask2_pointcloud = self.terrainPointCloud(mask2)
+        chamfer_loss = self.chamfer_dist(mask1_pointcloud, mask2_pointcloud)
+        return chamfer_loss
+    
     def forward_pred(self, x1, x2, mask1 = None, mask2 = None, mask_ratio=0.75, scale_factors=None):
         """
         预测变换参数
@@ -273,8 +439,16 @@ class LocalMAE(nn.Module):
             pred: 预测的变换参数 [B, 5] (theta, cx, cy, tx, ty)
         """
         if self.mask_weight and mask1 is not None and mask2 is not None:
-           x1 = x1*mask1 # 直接乘以权重，使得更关注mask区域
-           x2 = x2*mask2
+            # 下采样掩码
+            mask1_ds = self.downsample_mask(mask1, target_size=(x1.shape[2], x1.shape[3]))
+            mask2_ds = self.downsample_mask(mask2, target_size=(x2.shape[2], x2.shape[3]))
+            # 仅保留掩码的第一个通道，作为灰度掩码
+            threshold = 1e-4
+            mask1_ds = (mask1_ds > threshold).float()
+            mask2_ds = (mask2_ds > threshold).float()
+            x1 = x1 * mask1_ds
+            x2 = x2 * mask2_ds
+
         # Encoder features
         feat1, _mask1, _id_restore1, _ids_keep1 = self.encoder(x1, mask_ratio)  # [B, N, C] 
         keep_mask = {
@@ -328,7 +502,8 @@ class LocalMAE(nn.Module):
     
     def forward(self, x1, x2, 
                 mask1=None, mask2=None,
-                mask_ratio=0.75,
+                sample_contourl1=None, sample_contourl2=None,
+                mask_ratio=0.75, CXCY=None,
                 **kwargs):
         """
         模型前向传播，包含高分辨率损失计算
@@ -342,8 +517,18 @@ class LocalMAE(nn.Module):
             
         # 从低分辨率图像预测变换参数
         pred = self.forward_pred(x1, x2, mask1=mask1, mask2=mask2, mask_ratio = mask_ratio, **kwargs)
+        
+        pointcloud_loss = 0
+        if mask1 is not None and mask2 is not None:
+            mask2 = self.forward_transfer(mask2, pred, CXCY=CXCY)
+            pointcloud_loss = self.forward_pointcloud_loss(mask1, mask2)
 
-        return pred
+        chamfer_loss = 0
+        if self.use_chamfer_dist and sample_contourl1 is not None and sample_contourl2 is not None:
+            # 计算Chamfer距离损失
+            chamfer_loss = self.forward_chamfer_loss(sample_contourl1, sample_contourl2)
+        
+        return pred, pointcloud_loss, chamfer_loss
 
 
 def create_localmae_model(
