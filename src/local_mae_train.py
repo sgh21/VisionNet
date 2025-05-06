@@ -349,84 +349,130 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
-
 def visualize_point_clouds_for_tensorboard(mask1_pointcloud, mask2_pointcloud, img_name1, img_name2):
     """
-    生成点云比较可视化图，用于TensorBoard，不保存文件
+    Generate point cloud comparison visualization for TensorBoard with unified colors
     
     Args:
-        mask1_pointcloud: 第一个点云，形状为 [N, 3]
-        mask2_pointcloud: 第二个点云，形状为 [N, 3]
-        img_name1: 第一个图像的名称
-        img_name2: 第二个图像的名称
+        mask1_pointcloud: First point cloud, shape [N, 3]
+        mask2_pointcloud: Second point cloud, shape [N, 3]
+        img_name1: Name of the first image
+        img_name2: Name of the second image
         
     Returns:
-        torch.Tensor: 包含可视化图像的张量，形状为 [3, H, W]
+        torch.Tensor: Visualization image tensor, shape [3, H, W]
     """
-    # 创建matplotlib图形
+    # Create matplotlib figure
     fig = Figure(figsize=(15, 10), dpi=100)
     canvas = FigureCanvas(fig)
     
-    # 第一个视图 - 3D点云比较（默认视角）
+    # Define unified colors for each point cloud
+    color1 = '#3498db'  # Blue for first point cloud
+    color2 = '#e74c3c'  # Red for second point cloud
+    
+    # Set point size and transparency
+    point_size1 = 8
+    point_size2 = 8
+    alpha1 = 0.7
+    alpha2 = 0.7
+    
+    # Get Z-value ranges for statistics
+    z1_min, z1_max = mask1_pointcloud[:, 2].min(), mask1_pointcloud[:, 2].max()
+    z2_min, z2_max = mask2_pointcloud[:, 2].min(), mask2_pointcloud[:, 2].max()
+    
+    # View 1 - 3D point cloud comparison (default view)
     ax1 = fig.add_subplot(221, projection='3d')
     ax1.scatter(mask1_pointcloud[:, 0], mask1_pointcloud[:, 1], mask1_pointcloud[:, 2], 
-               c=mask1_pointcloud[:, 2], cmap='viridis', s=5, alpha=0.7, label=img_name1)
+               color=color1, s=point_size1, alpha=alpha1, label=img_name1)
     ax1.scatter(mask2_pointcloud[:, 0], mask2_pointcloud[:, 1], mask2_pointcloud[:, 2], 
-               c=mask2_pointcloud[:, 2], cmap='plasma', s=5, alpha=0.7, label=img_name2)
-    ax1.set_title('点云比较 (默认视角)')
+               color=color2, s=point_size2, alpha=alpha2, label=img_name2)
+    ax1.set_title('Point Cloud Comparison (Default View)')
     ax1.legend()
     
-    # 第二个视图 - 俯视图
+    # View 2 - Top view
     ax2 = fig.add_subplot(222, projection='3d')
     ax2.scatter(mask1_pointcloud[:, 0], mask1_pointcloud[:, 1], mask1_pointcloud[:, 2], 
-               c=mask1_pointcloud[:, 2], cmap='viridis', s=5, alpha=0.7)
+               color=color1, s=point_size1, alpha=alpha1)
     ax2.scatter(mask2_pointcloud[:, 0], mask2_pointcloud[:, 1], mask2_pointcloud[:, 2], 
-               c=mask2_pointcloud[:, 2], cmap='plasma', s=5, alpha=0.7)
-    ax2.set_title('点云比较 (俯视图)')
+               color=color2, s=point_size2, alpha=alpha2)
+    ax2.set_title('Point Cloud Comparison (Top View)')
     ax2.view_init(elev=90, azim=0)
     
-    # 第三个视图 - 侧视图1
+    # View 3 - Side view 1 (YZ plane)
     ax3 = fig.add_subplot(223, projection='3d')
     ax3.scatter(mask1_pointcloud[:, 0], mask1_pointcloud[:, 1], mask1_pointcloud[:, 2], 
-               c=mask1_pointcloud[:, 2], cmap='viridis', s=5, alpha=0.7)
+               color=color1, s=point_size1, alpha=alpha1)
     ax3.scatter(mask2_pointcloud[:, 0], mask2_pointcloud[:, 1], mask2_pointcloud[:, 2], 
-               c=mask2_pointcloud[:, 2], cmap='plasma', s=5, alpha=0.7)
-    ax3.set_title('点云比较 (侧视图1)')
+               color=color2, s=point_size2, alpha=alpha2)
+    ax3.set_title('Point Cloud Comparison (Side View 1 - YZ Plane)')
     ax3.view_init(elev=0, azim=90)
     
-    # 第四个视图 - 侧视图2
+    # View 4 - Side view 2 (XZ plane)
     ax4 = fig.add_subplot(224, projection='3d')
     ax4.scatter(mask1_pointcloud[:, 0], mask1_pointcloud[:, 1], mask1_pointcloud[:, 2], 
-               c=mask1_pointcloud[:, 2], cmap='viridis', s=5, alpha=0.7)
+               color=color1, s=point_size1, alpha=alpha1)
     ax4.scatter(mask2_pointcloud[:, 0], mask2_pointcloud[:, 1], mask2_pointcloud[:, 2], 
-               c=mask2_pointcloud[:, 2], cmap='plasma', s=5, alpha=0.7)
-    ax4.set_title('点云比较 (侧视图2)')
+               color=color2, s=point_size2, alpha=alpha2)
+    ax4.set_title('Point Cloud Comparison (Side View 2 - XZ Plane)')
     ax4.view_init(elev=0, azim=0)
     
-    # 设置总标题
-    fig.suptitle(f'点云比较: {img_name1} vs {img_name2}', fontsize=16)
+    # Set consistent scales across all subplots
+    for ax in [ax1, ax2, ax3, ax4]:
+        # Set axis ranges to cover both point clouds
+        x_min = min(mask1_pointcloud[:, 0].min(), mask2_pointcloud[:, 0].min())
+        x_max = max(mask1_pointcloud[:, 0].max(), mask2_pointcloud[:, 0].max())
+        y_min = min(mask1_pointcloud[:, 1].min(), mask2_pointcloud[:, 1].min())
+        y_max = max(mask1_pointcloud[:, 1].max(), mask2_pointcloud[:, 1].max())
+        z_min = min(mask1_pointcloud[:, 2].min(), mask2_pointcloud[:, 2].min())
+        z_max = max(mask1_pointcloud[:, 2].max(), mask2_pointcloud[:, 2].max())
+        
+        ax.set_xlim([x_min, x_max])
+        ax.set_ylim([y_min, y_max])
+        ax.set_zlim([z_min, z_max])
+        
+        # Add grid lines for better spatial perception
+        ax.grid(True)
+        
+        # Set axis labels
+        ax.set_xlabel('X', fontsize=8)
+        ax.set_ylabel('Y', fontsize=8)
+        ax.set_zlabel('Z', fontsize=8)
     
-    # 添加点云统计信息
+    # Set main title
+    fig.suptitle(f'Point Cloud Comparison: {img_name1} vs {img_name2}', fontsize=16)
+    
+    # Add point cloud statistics
     info_text = (
-        f"点云1统计:\n"
-        f"• 非零Z值点数: {(mask1_pointcloud[:, 2] > 0).sum()}/{mask1_pointcloud.shape[0]}\n"
-        f"• Z值范围: [{mask1_pointcloud[:, 2].min():.3f}, {mask1_pointcloud[:, 2].max():.3f}]\n\n"
-        f"点云2统计:\n"
-        f"• 非零Z值点数: {(mask2_pointcloud[:, 2] > 0).sum()}/{mask2_pointcloud.shape[0]}\n"
-        f"• Z值范围: [{mask2_pointcloud[:, 2].min():.3f}, {mask2_pointcloud[:, 2].max():.3f}]"
+        f"{img_name1} (Blue):\n"
+        f"• Points: {mask1_pointcloud.shape[0]}\n"
+        f"• Non-zero Z: {(mask1_pointcloud[:, 2] > 0).sum()}\n"
+        f"• Z Range: [{z1_min:.3f}, {z1_max:.3f}]\n\n"
+        f"{img_name2} (Red):\n"
+        f"• Points: {mask2_pointcloud.shape[0]}\n"
+        f"• Non-zero Z: {(mask2_pointcloud[:, 2] > 0).sum()}\n"
+        f"• Z Range: [{z2_min:.3f}, {z2_max:.3f}]"
     )
     fig.text(0.01, 0.01, info_text, fontsize=10, bbox=dict(facecolor='white', alpha=0.8))
     
-    fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+    # Add color legend at the bottom
+    legend_elements = [
+        plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=color1, 
+                  markersize=10, label=img_name1),
+        plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=color2, 
+                  markersize=10, label=img_name2)
+    ]
+    fig.legend(handles=legend_elements, loc='lower center', ncol=2, fontsize=12)
     
-    # 将matplotlib图形转换为PIL图像
+    fig.tight_layout(rect=[0, 0.05, 1, 0.95])
+    
+    # Convert matplotlib figure to PIL image
     canvas.draw()
     image_array = np.array(canvas.renderer.buffer_rgba())
     
-    # 转换RGBA为RGB
+    # Convert RGBA to RGB
     image_array = image_array[:, :, :3]
     
-    # 转换为Torch张量 [H, W, C] -> [C, H, W]
+    # Convert to Torch tensor [H, W, C] -> [C, H, W]
     image_tensor = torch.from_numpy(image_array).permute(2, 0, 1) / 255.0
     
     plt.close(fig)
@@ -587,7 +633,8 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
     print(f'* Loss {avg_loss:.3f} Pred Loss {avg_pred_loss:.3f} PointCloud Loss {avg_pointcloud_loss:.3f} Chamfer Loss {avg_chamfer_loss:.3f}')
     print(f'* MAE: X {avg_x_mae:.3f} Y {avg_y_mae:.3f} Rz {avg_rz_mae:.3f}')
     
-    return avg_loss, (avg_x_mae, avg_y_mae, avg_rz_mae)
+    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    # return avg_loss, (avg_x_mae, avg_y_mae, avg_rz_mae)
 # def validate(model, data_loader, criterion, device, epoch, log_writer=None, args=None):
 #     model.eval()
 #     metric_logger = misc.MetricLogger(delimiter="  ")
