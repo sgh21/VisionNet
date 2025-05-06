@@ -25,6 +25,12 @@ from utils.misc import NativeScalerWithGradNormCount as NativeScaler
 import models.LocalMAE as localmae
 from utils.custome_datasets import LocalMAEDataset
 from config import INTRINSIC
+# 添加以下导入（如果尚未导入）
+
+import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+import numpy as np
 
 def get_default_args():
     """获取默认参数"""
@@ -343,6 +349,91 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
+
+def visualize_point_clouds_for_tensorboard(mask1_pointcloud, mask2_pointcloud, img_name1, img_name2):
+    """
+    生成点云比较可视化图，用于TensorBoard，不保存文件
+    
+    Args:
+        mask1_pointcloud: 第一个点云，形状为 [N, 3]
+        mask2_pointcloud: 第二个点云，形状为 [N, 3]
+        img_name1: 第一个图像的名称
+        img_name2: 第二个图像的名称
+        
+    Returns:
+        torch.Tensor: 包含可视化图像的张量，形状为 [3, H, W]
+    """
+    # 创建matplotlib图形
+    fig = Figure(figsize=(15, 10), dpi=100)
+    canvas = FigureCanvas(fig)
+    
+    # 第一个视图 - 3D点云比较（默认视角）
+    ax1 = fig.add_subplot(221, projection='3d')
+    ax1.scatter(mask1_pointcloud[:, 0], mask1_pointcloud[:, 1], mask1_pointcloud[:, 2], 
+               c=mask1_pointcloud[:, 2], cmap='viridis', s=5, alpha=0.7, label=img_name1)
+    ax1.scatter(mask2_pointcloud[:, 0], mask2_pointcloud[:, 1], mask2_pointcloud[:, 2], 
+               c=mask2_pointcloud[:, 2], cmap='plasma', s=5, alpha=0.7, label=img_name2)
+    ax1.set_title('点云比较 (默认视角)')
+    ax1.legend()
+    
+    # 第二个视图 - 俯视图
+    ax2 = fig.add_subplot(222, projection='3d')
+    ax2.scatter(mask1_pointcloud[:, 0], mask1_pointcloud[:, 1], mask1_pointcloud[:, 2], 
+               c=mask1_pointcloud[:, 2], cmap='viridis', s=5, alpha=0.7)
+    ax2.scatter(mask2_pointcloud[:, 0], mask2_pointcloud[:, 1], mask2_pointcloud[:, 2], 
+               c=mask2_pointcloud[:, 2], cmap='plasma', s=5, alpha=0.7)
+    ax2.set_title('点云比较 (俯视图)')
+    ax2.view_init(elev=90, azim=0)
+    
+    # 第三个视图 - 侧视图1
+    ax3 = fig.add_subplot(223, projection='3d')
+    ax3.scatter(mask1_pointcloud[:, 0], mask1_pointcloud[:, 1], mask1_pointcloud[:, 2], 
+               c=mask1_pointcloud[:, 2], cmap='viridis', s=5, alpha=0.7)
+    ax3.scatter(mask2_pointcloud[:, 0], mask2_pointcloud[:, 1], mask2_pointcloud[:, 2], 
+               c=mask2_pointcloud[:, 2], cmap='plasma', s=5, alpha=0.7)
+    ax3.set_title('点云比较 (侧视图1)')
+    ax3.view_init(elev=0, azim=90)
+    
+    # 第四个视图 - 侧视图2
+    ax4 = fig.add_subplot(224, projection='3d')
+    ax4.scatter(mask1_pointcloud[:, 0], mask1_pointcloud[:, 1], mask1_pointcloud[:, 2], 
+               c=mask1_pointcloud[:, 2], cmap='viridis', s=5, alpha=0.7)
+    ax4.scatter(mask2_pointcloud[:, 0], mask2_pointcloud[:, 1], mask2_pointcloud[:, 2], 
+               c=mask2_pointcloud[:, 2], cmap='plasma', s=5, alpha=0.7)
+    ax4.set_title('点云比较 (侧视图2)')
+    ax4.view_init(elev=0, azim=0)
+    
+    # 设置总标题
+    fig.suptitle(f'点云比较: {img_name1} vs {img_name2}', fontsize=16)
+    
+    # 添加点云统计信息
+    info_text = (
+        f"点云1统计:\n"
+        f"• 非零Z值点数: {(mask1_pointcloud[:, 2] > 0).sum()}/{mask1_pointcloud.shape[0]}\n"
+        f"• Z值范围: [{mask1_pointcloud[:, 2].min():.3f}, {mask1_pointcloud[:, 2].max():.3f}]\n\n"
+        f"点云2统计:\n"
+        f"• 非零Z值点数: {(mask2_pointcloud[:, 2] > 0).sum()}/{mask2_pointcloud.shape[0]}\n"
+        f"• Z值范围: [{mask2_pointcloud[:, 2].min():.3f}, {mask2_pointcloud[:, 2].max():.3f}]"
+    )
+    fig.text(0.01, 0.01, info_text, fontsize=10, bbox=dict(facecolor='white', alpha=0.8))
+    
+    fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+    
+    # 将matplotlib图形转换为PIL图像
+    canvas.draw()
+    image_array = np.array(canvas.renderer.buffer_rgba())
+    
+    # 转换RGBA为RGB
+    image_array = image_array[:, :, :3]
+    
+    # 转换为Torch张量 [H, W, C] -> [C, H, W]
+    image_tensor = torch.from_numpy(image_array).permute(2, 0, 1) / 255.0
+    
+    plt.close(fig)
+    
+    return image_tensor
+
+
 def validate(model, data_loader, criterion, device, epoch, log_writer=None, args=None):
     model.eval()
     metric_logger = misc.MetricLogger(delimiter="  ")
@@ -355,7 +446,8 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
     total_x_mae = 0
     total_y_mae = 0
     total_rz_mae = 0
-    # * :图像的反归一化和可视化
+    num_samples = 0
+    
     # 图像反归一化的均值和标准差
     mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
     std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
@@ -370,6 +462,12 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
     overall_progress = epoch / args.epochs
     current_lambda = get_current_lambda(overall_progress, args)
     
+    # 创建TerrainPointCloud实例用于点云转换
+    terrain_point_cloud = model.terrainPointCloud
+    
+    # 记录当前已经可视化的点云数量
+    vis_count = 0
+    
     with torch.no_grad():
         for batch_idx, (img1, img2, touch_img_mask1, touch_img_mask2, sample_contour1, sample_contour2, label1, label2) in enumerate(metric_logger.log_every(data_loader, 20, header)):
             img1 = img1.to(device, non_blocking=True)
@@ -382,6 +480,7 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
             label2 = label2.to(device, non_blocking=True)
 
             batch_size = img1.size(0)
+            num_samples += batch_size
             
             with torch.cuda.amp.autocast():
                 pred, pointcloud_loss, chamfer_loss = model(
@@ -391,9 +490,54 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                     mask_ratio=args.mask_ratio, 
                 )
                 
+                # 生成点云并可视化到TensorBoard（仅显示少量样本）
+                if log_writer is not None and vis_count < 10:  # 只生成最多10个可视化
+                    # 生成点云
+                    mask1_pointcloud = terrain_point_cloud(touch_img_mask1)  # [B, N, 3]
+                    
+                    # 使用预测的变换参数变换mask2
+                    transformed_mask2 = model.forward_transfer(touch_img_mask2, pred, CXCY=args.CXCY)
+                    mask2_pointcloud = terrain_point_cloud(transformed_mask2)  # [B, N, 3]
+                    
+                    # 为每个样本生成点云可视化
+                    for i in range(min(2, batch_size)):  # 每批次最多可视化2个样本
+                        if vis_count >= 10:
+                            break
+                            
+                        # 提取单个样本的点云
+                        pc1 = mask1_pointcloud[i].detach().cpu().numpy()
+                        pc2 = mask2_pointcloud[i].detach().cpu().numpy()
+                        
+                        # 设置示例图像名称
+                        img_name1 = f"原始点云"
+                        img_name2 = f"变换后点云"
+                        
+                        # 生成可视化图像张量
+                        vis_tensor = visualize_point_clouds_for_tensorboard(
+                            pc1, pc2, img_name1, img_name2
+                        )
+                        
+                        # 添加到TensorBoard
+                        log_writer.add_image(f'val/pointcloud_{vis_count}', vis_tensor, epoch)
+                        vis_count += 1
+                        
+                        # 额外添加原始图像和触觉掩码的可视化
+                        if i == 0 and batch_idx == 0:
+                            # 原始图像
+                            img1_vis = denormalize_image(img1[i].unsqueeze(0))  # [1, 3, H, W]
+                            img2_vis = denormalize_image(img2[i].unsqueeze(0))  # [1, 3, H, W]
+                            log_writer.add_images('val/orig_img1', img1_vis, epoch)
+                            log_writer.add_images('val/orig_img2', img2_vis, epoch)
+                            
+                            # 触觉掩码
+                            log_writer.add_images('val/touch_mask1', touch_img_mask1[i].unsqueeze(0), epoch)
+                            log_writer.add_images('val/touch_mask2', touch_img_mask2[i].unsqueeze(0), epoch)
+                            log_writer.add_images('val/transformed_mask2', transformed_mask2[i].unsqueeze(0), epoch)
+                
+                # 进行损失计算和指标更新
                 delta_label = label2 - label1
                 
-                pred_vector = create_pred_vector(pred, intrinsic=INTRINSIC,img_size=[560, 560])
+                pred_vector = create_pred_vector(pred, intrinsic=INTRINSIC, img_size=[560, 560])
                 mae_x, mae_y, mae_rz = calculate_dim_mae(pred_vector, delta_label)
                 
                 total_x_mae += mae_x.item() * batch_size
@@ -410,39 +554,140 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                 total_pointcloud_loss += pointcloud_loss.item() * batch_size
                 total_chamfer_loss += chamfer_loss.item() * batch_size
 
-            metric_logger.update(loss=loss.item())  # 更新损失
+            # 更新度量记录器
+            metric_logger.update(loss=loss.item())
             metric_logger.update(pred_loss=pred_loss.item())
-            metric_logger.update(pointcloud_loss=pointcloud_loss.item())  # 更新点云损失
+            metric_logger.update(pointcloud_loss=pointcloud_loss.item())
             metric_logger.update(chamfer_loss=chamfer_loss.item())
             
-                
-    # 计算平均值
-    num_samples = len(data_loader.dataset)
+    # 计算平均损失
     avg_loss = total_loss / num_samples
+    avg_pred_loss = total_pred_loss / num_samples
+    avg_pointcloud_loss = total_pointcloud_loss / num_samples
+    avg_chamfer_loss = total_chamfer_loss / num_samples
+    
+    # 计算平均MAE
     avg_x_mae = total_x_mae / num_samples
     avg_y_mae = total_y_mae / num_samples
     avg_rz_mae = total_rz_mae / num_samples
     
-    # 记录到tensorboard
+    # 记录到TensorBoard
     if log_writer is not None:
         log_writer.add_scalar('val/loss', avg_loss, epoch)
-        log_writer.add_scalar('val/mae_x_mm', avg_x_mae, epoch)
-        log_writer.add_scalar('val/mae_y_mm', avg_y_mae, epoch)
-        log_writer.add_scalar('val/mae_rz_deg', avg_rz_mae, epoch)
-
-    metric_logger.update(mae_x=avg_x_mae)
-    metric_logger.update(mae_y=avg_y_mae)
-    metric_logger.update(mae_rz=avg_rz_mae)
-
-    # 同步并打印结果
+        log_writer.add_scalar('val/pred_loss', avg_pred_loss, epoch)
+        log_writer.add_scalar('val/pointcloud_loss', avg_pointcloud_loss, epoch)
+        log_writer.add_scalar('val/chamfer_loss', avg_chamfer_loss, epoch)
+        log_writer.add_scalar('val/x_mae', avg_x_mae, epoch)
+        log_writer.add_scalar('val/y_mae', avg_y_mae, epoch)
+        log_writer.add_scalar('val/rz_mae', avg_rz_mae, epoch)
+        log_writer.add_scalar('val/lambda', current_lambda, epoch)
+    
+    # 打印结果
     metric_logger.synchronize_between_processes()
-    print('* Avg loss {:.3f}, MAE x {:.2f}mm, y {:.2f}mm, rz {:.2f}deg'
-        .format(metric_logger.loss.global_avg,
-                metric_logger.mae_x.global_avg,
-                metric_logger.mae_y.global_avg,
-                metric_logger.mae_rz.global_avg))
+    print(f'* Loss {avg_loss:.3f} Pred Loss {avg_pred_loss:.3f} PointCloud Loss {avg_pointcloud_loss:.3f} Chamfer Loss {avg_chamfer_loss:.3f}')
+    print(f'* MAE: X {avg_x_mae:.3f} Y {avg_y_mae:.3f} Rz {avg_rz_mae:.3f}')
+    
+    return avg_loss, (avg_x_mae, avg_y_mae, avg_rz_mae)
+# def validate(model, data_loader, criterion, device, epoch, log_writer=None, args=None):
+#     model.eval()
+#     metric_logger = misc.MetricLogger(delimiter="  ")
+#     header = 'Test:'
 
-    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+#     total_loss = 0
+#     total_pred_loss = 0
+#     total_pointcloud_loss = 0
+#     total_chamfer_loss = 0
+#     total_x_mae = 0
+#     total_y_mae = 0
+#     total_rz_mae = 0
+#     # * :图像的反归一化和可视化
+#     # 图像反归一化的均值和标准差
+#     mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
+#     std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
+
+#     def denormalize_image(img):
+#         """将归一化的图像反归一化回[0, 1]范围"""
+#         img = img * std + mean  # 反归一化
+#         img = torch.clamp(img, 0, 1)  # 裁剪到[0, 1]范围
+#         return img
+    
+#     # 计算当前epoch对应的总体进度
+#     overall_progress = epoch / args.epochs
+#     current_lambda = get_current_lambda(overall_progress, args)
+    
+#     with torch.no_grad():
+#         for batch_idx, (img1, img2, touch_img_mask1, touch_img_mask2, sample_contour1, sample_contour2, label1, label2) in enumerate(metric_logger.log_every(data_loader, 20, header)):
+#             img1 = img1.to(device, non_blocking=True)
+#             img2 = img2.to(device, non_blocking=True)
+#             touch_img_mask1 = touch_img_mask1.to(device, non_blocking=True)
+#             touch_img_mask2 = touch_img_mask2.to(device, non_blocking=True)
+#             sample_contour1 = sample_contour1.to(device, non_blocking=True)
+#             sample_contour2 = sample_contour2.to(device, non_blocking=True)
+#             label1 = label1.to(device, non_blocking=True)
+#             label2 = label2.to(device, non_blocking=True)
+
+#             batch_size = img1.size(0)
+            
+#             with torch.cuda.amp.autocast():
+#                 pred, pointcloud_loss, chamfer_loss = model(
+#                     img1, img2, 
+#                     touch_img_mask1=touch_img_mask1,
+#                     touch_img_mask2=touch_img_mask2,
+#                     mask_ratio=args.mask_ratio, 
+#                 )
+                
+#                 delta_label = label2 - label1
+                
+#                 pred_vector = create_pred_vector(pred, intrinsic=INTRINSIC,img_size=[560, 560])
+#                 mae_x, mae_y, mae_rz = calculate_dim_mae(pred_vector, delta_label)
+                
+#                 total_x_mae += mae_x.item() * batch_size
+#                 total_y_mae += mae_y.item() * batch_size
+#                 total_rz_mae += mae_rz.item() * batch_size
+
+#                 delta_label = label_normalize(delta_label, weight=loss_norm)  # 对标签进行归一化
+#                 pred_vector = label_normalize(pred_vector, weight=loss_norm)
+#                 pred_loss = criterion(pred_vector, delta_label)  # 计算损失
+                
+#                 loss = pred_loss + args.beta * pointcloud_loss + args.gamma * chamfer_loss  # 计算总损失
+#                 total_loss += loss.item() * batch_size
+#                 total_pred_loss += pred_loss.item() * batch_size
+#                 total_pointcloud_loss += pointcloud_loss.item() * batch_size
+#                 total_chamfer_loss += chamfer_loss.item() * batch_size
+
+#             metric_logger.update(loss=loss.item())  # 更新损失
+#             metric_logger.update(pred_loss=pred_loss.item())
+#             metric_logger.update(pointcloud_loss=pointcloud_loss.item())  # 更新点云损失
+#             metric_logger.update(chamfer_loss=chamfer_loss.item())
+            
+                
+#     # 计算平均值
+#     num_samples = len(data_loader.dataset)
+#     avg_loss = total_loss / num_samples
+#     avg_x_mae = total_x_mae / num_samples
+#     avg_y_mae = total_y_mae / num_samples
+#     avg_rz_mae = total_rz_mae / num_samples
+    
+#     # 记录到tensorboard
+#     if log_writer is not None:
+#         log_writer.add_scalar('val/loss', avg_loss, epoch)
+#         log_writer.add_scalar('val/mae_x_mm', avg_x_mae, epoch)
+#         log_writer.add_scalar('val/mae_y_mm', avg_y_mae, epoch)
+#         log_writer.add_scalar('val/mae_rz_deg', avg_rz_mae, epoch)
+
+#     metric_logger.update(mae_x=avg_x_mae)
+#     metric_logger.update(mae_y=avg_y_mae)
+#     metric_logger.update(mae_rz=avg_rz_mae)
+
+#     # 同步并打印结果
+#     metric_logger.synchronize_between_processes()
+#     print('* Avg loss {:.3f}, MAE x {:.2f}mm, y {:.2f}mm, rz {:.2f}deg'
+#         .format(metric_logger.loss.global_avg,
+#                 metric_logger.mae_x.global_avg,
+#                 metric_logger.mae_y.global_avg,
+#                 metric_logger.mae_rz.global_avg))
+
+#     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 def main(args):
     print('job dir: {}'.format(os.path.dirname(os.path.realpath(__file__))))
