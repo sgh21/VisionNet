@@ -97,6 +97,10 @@ def get_args_parser():
     parser.add_argument('--chamfer_dist_type', type=str, default='L2', choices=['L1', 'L2'])
     parser.add_argument('--mask_weight', type=bool, default=True)
     parser.add_argument('--pool_mod', type=str, default='mean', choices=['max', 'mean'])
+    parser.add_argument('--train_noise_ratio', type=float, default=0.0)
+    parser.add_argument('--train_noise_level', type=float, default=0.0)
+    parser.add_argument('--val_noise_ratio', type=float, default=0.0)
+    parser.add_argument('--val_noise_level', type=float, default=0.0)
 
     
     # Optimizer parameters
@@ -298,6 +302,8 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
                 touch_img_mask1 =touch_img_mask1,
                 touch_img_mask2 =touch_img_mask2,
                 mask_ratio=args.mask_ratio, 
+                noise_ratio=args.train_noise_ratio,
+                noise_level=args.train_noise_level,
             )
 
             
@@ -362,7 +368,7 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
             # 记录是否使用点云损失回传
             if epoch == 0 and data_iter_step == 0:
                 log_writer.add_text('train/backward_pointcloud_loss', str(args.backward_pointcloud_loss), 0)
-                
+
     metric_logger.synchronize_between_processes()  # 跨进程同步
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
@@ -552,6 +558,8 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                     touch_img_mask1=touch_img_mask1,
                     touch_img_mask2=touch_img_mask2,
                     mask_ratio=args.mask_ratio, 
+                    noise_ratio=args.val_noise_ratio,
+                    noise_level=args.val_noise_level,
                 )
                 
                 # 生成点云并可视化到TensorBoard（仅显示少量样本）
