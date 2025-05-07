@@ -2143,6 +2143,61 @@ def convert_all_img2mask(img_dir, output_dir, transform):
     
     print(f"✓ 已将 {len(image_files)} 张图像处理并保存到 {output_dir}")
 
+def convert_all_img_with_mask(img_dir, mask_dir, output_dir, transform):
+    """
+    遍历目录中的所有图像，应用掩码，并保存结果
+    
+    参数:
+        img_dir: 输入图像目录
+        mask_dir: 掩码图像目录
+        output_dir: 输出图像目录
+        transform: 转换函数
+    """
+    # 确保输出目录存在
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    # 获取所有图像文件
+    image_files = [f for f in os.listdir(img_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
+    from torchvision.transforms import ToTensor, ToPILImage
+    to_tensor = ToTensor()
+    to_pil = ToPILImage()
+    
+    # 使用tqdm创建进度条
+    from tqdm import tqdm
+    for filename in tqdm(image_files, desc="处理图像", unit="张"):
+        # 加载图像和掩码
+        img_path = os.path.join(img_dir, filename)
+        mask_path = os.path.join(mask_dir, 'gel_' + filename)
+        serial = filename.split('_')[-2]
+        
+        img = Image.open(img_path).convert('RGB')
+        mask = Image.open(mask_path).convert('L')
+        
+        # 应用变换生成梯田图
+        transformed_img, _ = transform(mask, serial=serial)
+        
+        # 转换为张量
+        img_tensor = to_tensor(img)
+        transformed_tensor = to_tensor(transformed_img)
+        
+        # 创建二值掩码
+        binary_mask = transformed_tensor > 0.001
+        
+        # 应用掩码到原始图像
+        masked_img_tensor = img_tensor * binary_mask
+        
+        # 转换回PIL图像
+        masked_img = to_pil(masked_img_tensor)
+        
+        # 保存结果
+        output_path = os.path.join(output_dir, filename)
+        masked_img.save(output_path)
+    
+    print(f"✓ 已将 {len(image_files)} 张图像处理并保存到 {output_dir}")
+        
+    
+    print(f"✓ 已将 {len(image_files)} 张图像处理并保存到 {output_dir}")
 # *: 根据触觉生成touch_masks
 # if __name__ == '__main__':
 #     # 测试代码
@@ -2181,23 +2236,46 @@ def convert_all_img2mask(img_dir, output_dir, transform):
 
 
 
-# *: 根据触觉生成touch_masks_gray
-if __name__ == '__main__':
-    # 测试代码
-    img_path = '/home/sgh/data/WorkSpace/VisionNet/dataset/result/gel_image_template.png'
+# # *: 根据触觉生成touch_masks_gray
+# if __name__ == '__main__':
+#     # 测试代码
+#     img_path = '/home/sgh/data/WorkSpace/VisionNet/dataset/result/gel_image_template.png'
     
-    from config import PARAMS
-    M = PARAMS['m']
-    transform = TouchWeightMapTransform(
-        template_path=img_path,
-        min_area=500,
-        morph_operation='close_open',
-        min_rectangularity=0.9,
-        M = M,
-        canvas_size=(560, 560),
-        to_tensor=False,
-        normalized=False,
+#     from config import PARAMS
+#     M = PARAMS['m']
+#     transform = TouchWeightMapTransform(
+#         template_path=img_path,
+#         min_area=500,
+#         morph_operation='close_open',
+#         min_rectangularity=0.9,
+#         M = M,
+#         canvas_size=(560, 560),
+#         to_tensor=False,
+#         normalized=False,
+#     )
+#     img_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/touch_images"
+#     output_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/masks"
+#     convert_all_img(img_dir=img_dir, output_dir=output_dir, transform=transform)
+
+# *： 使用Mask生成视觉图像
+if __name__ == '__main__':
+    from config import EXPANSION_SIZE
+    terrace_map_generator = TerraceMapGenerator(
+            intensity_scaling = [0.0, 1.0, 1.0, 1.0],
+            edge_enhancement = 1.0,
+            sample_size= 256,
+            expansion_size = EXPANSION_SIZE,
     )
-    img_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/touch_images"
-    output_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/masks"
-    convert_all_img(img_dir=img_dir, output_dir=output_dir, transform=transform)
+
+    img_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/rgb_images"
+    mask_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/touch_masks"
+    output_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/rgb_images_with_mask"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    convert_all_img_with_mask(
+        img_dir=img_dir,
+        mask_dir=mask_dir,
+        output_dir=output_dir,
+        transform=terrace_map_generator
+    )

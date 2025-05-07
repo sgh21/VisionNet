@@ -93,6 +93,7 @@ def get_args_parser():
     parser.add_argument('--gamma', type=float, default=1.0)
     parser.add_argument('--use_chamfer_dist', type=bool, default=True)
     parser.add_argument('--use_value_as_weights', type=bool, default=True)
+    parser.add_argument('--backward_pointcloud_loss', type=bool, default=True)
     parser.add_argument('--chamfer_dist_type', type=str, default='L2', choices=['L1', 'L2'])
     parser.add_argument('--mask_weight', type=bool, default=True)
     parser.add_argument('--pool_mod', type=str, default='mean', choices=['max', 'mean'])
@@ -289,6 +290,7 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
         label1 = label1.to(device, non_blocking=True)
         label2 = label2.to(device, non_blocking=True)
 
+        
         #todo: 先不用sample_contourl
         with torch.cuda.amp.autocast():  # 混合精度训练
             pred, pointcloud_loss, chamfer_loss = model(
@@ -305,8 +307,19 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
             delta_label = label_normalize(delta_label, weight=loss_norm)  # 对标签进行归一化
             pred_vector = label_normalize(pred_vector, weight=loss_norm)
             pred_loss = criterion(pred_vector, delta_label)  # 计算损失
-
-            loss = pred_loss + args.beta * pointcloud_loss + args.gamma * chamfer_loss  # 计算总损失
+            current_lambda = get_current_lambda(overall_progress, args)
+                        # 根据是否使用点云损失回传来决定最终的损失
+            if args.backward_pointcloud_loss:
+                # 使用完整损失计算
+                loss = (1-current_lambda) * pred_loss + args.beta * pointcloud_loss + args.gamma * chamfer_loss
+            else:
+                # 仅使用预测损失进行优化
+                loss = pred_loss
+                
+                # 将点云损失和chamfer损失从计算图中分离出来，仅用于记录
+                pointcloud_loss = pointcloud_loss.detach()
+                chamfer_loss = chamfer_loss.detach()
+            # loss = (1-current_lambda) * pred_loss + args.beta * pointcloud_loss + args.gamma * chamfer_loss  # 计算总损失
 
         loss_value = loss.item()
         pred_loss_value = pred_loss.item()
@@ -346,7 +359,10 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
             log_writer.add_scalar('train/pred_loss', pred_loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('train/pointcloud_loss', pointcloud_loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('train/chamfer_loss', chamfer_loss_value_reduce, epoch_1000x)
-
+            # 记录是否使用点云损失回传
+            if epoch == 0 and data_iter_step == 0:
+                log_writer.add_text('train/backward_pointcloud_loss', str(args.backward_pointcloud_loss), 0)
+                
     metric_logger.synchronize_between_processes()  # 跨进程同步
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
@@ -596,7 +612,7 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                 pred_vector = label_normalize(pred_vector, weight=loss_norm)
                 pred_loss = criterion(pred_vector, delta_label)  # 计算损失
                 
-                loss = pred_loss + args.beta * pointcloud_loss + args.gamma * chamfer_loss  # 计算总损失
+                loss = (1-current_lambda) * pred_loss + args.beta * pointcloud_loss + args.gamma * chamfer_loss  # 计算总损失
                 total_loss += loss.item() * batch_size
                 total_pred_loss += pred_loss.item() * batch_size
                 total_pointcloud_loss += pointcloud_loss.item() * batch_size
