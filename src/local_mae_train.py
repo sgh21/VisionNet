@@ -92,9 +92,11 @@ def get_args_parser():
     parser.add_argument('--illumination_alignment', type=bool, default=False)
     parser.add_argument('--gamma', type=float, default=1.0)
     parser.add_argument('--use_chamfer_dist', type=bool, default=True)
+    parser.add_argument('--use_value_as_weights', type=bool, default=True)
     parser.add_argument('--chamfer_dist_type', type=str, default='L2', choices=['L1', 'L2'])
     parser.add_argument('--mask_weight', type=bool, default=True)
     parser.add_argument('--pool_mod', type=str, default='mean', choices=['max', 'mean'])
+
     
     # Optimizer parameters
     parser.add_argument('--weight_decay', type=float, default=0.05,
@@ -623,9 +625,9 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
         log_writer.add_scalar('val/pred_loss', avg_pred_loss, epoch)
         log_writer.add_scalar('val/pointcloud_loss', avg_pointcloud_loss, epoch)
         log_writer.add_scalar('val/chamfer_loss', avg_chamfer_loss, epoch)
-        log_writer.add_scalar('val/x_mae', avg_x_mae, epoch)
-        log_writer.add_scalar('val/y_mae', avg_y_mae, epoch)
-        log_writer.add_scalar('val/rz_mae', avg_rz_mae, epoch)
+        log_writer.add_scalar('val/mae_x_mm', avg_x_mae, epoch)
+        log_writer.add_scalar('val/mae_y_mm', avg_y_mae, epoch)
+        log_writer.add_scalar('val/mae_rz_deg', avg_rz_mae, epoch)
         log_writer.add_scalar('val/lambda', current_lambda, epoch)
     
     # 打印结果
@@ -799,6 +801,7 @@ def main(args):
         qkv_bias=args.qkv_bias,
         mask_weight=args.mask_weight,
         use_chamfer_dist=args.use_chamfer_dist,
+        use_value_as_weights=args.use_value_as_weights,
         chamfer_dist_type=args.chamfer_dist_type,
     )
 

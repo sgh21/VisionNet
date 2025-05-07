@@ -189,6 +189,7 @@ class LocalMAE(nn.Module):
         feature_dim=3,
         drop_rate=0.1,
         use_chamfer_dist=False,
+        use_value_as_weight=False,
         chamfer_dist_type='L2',
         illumination_alignment=False,
         mask_weight=False,
@@ -231,6 +232,7 @@ class LocalMAE(nn.Module):
         )
 
         self.use_chamfer_dist = use_chamfer_dist
+        self.use_value_as_weight = use_value_as_weight
         if self.use_chamfer_dist:
             self.chamfer_dist = ChamferDistanceL2() if chamfer_dist_type == 'L2' else ChamferDistanceL1()
         
@@ -419,7 +421,15 @@ class LocalMAE(nn.Module):
         # 计算Chamfer距离损失
         mask1_pointcloud = self.terrainPointCloud(mask1)  # [B, N, 3]
         mask2_pointcloud = self.terrainPointCloud(mask2)
-        chamfer_loss = self.chamfer_dist(mask1_pointcloud, mask2_pointcloud)
+        # 使用掩码的值作为权重
+        weights1 = None
+        weights2 = None
+        if self.use_value_as_weight:
+            # 使用掩码的值作为权重
+            weights1 = mask1_pointcloud[:, :, 2]  # [B, N]
+            weights2 = mask2_pointcloud[:, :, 2]
+
+        chamfer_loss = self.chamfer_dist(mask1_pointcloud, mask2_pointcloud, weights1=weights1, weights2=weights2)
         return chamfer_loss
     
     def forward_pred(self, x1, x2, mask1 = None, mask2 = None, mask_ratio=0.75, scale_factors=None):

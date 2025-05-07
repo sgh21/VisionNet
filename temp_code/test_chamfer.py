@@ -25,7 +25,10 @@ def test_simple_2d_case():
     # 将2D点转换为3D点（添加z=0）
     points_a_3d = torch.cat([points_a, torch.zeros_like(points_a[:,:,:1])], dim=2)
     points_b_3d = torch.cat([points_b, torch.zeros_like(points_b[:,:,:1])], dim=2)
-    
+    weights = torch.tensor([
+        [0.0, 0.1]
+    ], device=device)  # 权重为1
+
     # 计算预期的Chamfer距离
     # 从A到B: 对于A中的每个点，到B中最近点的距离均为1.0
     # 从B到A: 对于B中的每个点，到A中最近点的距离均为1.0
@@ -39,8 +42,8 @@ def test_simple_2d_case():
     chamfer_l1 = ChamferDistanceL1()
     
     # 计算Chamfer距离
-    dist_l2 = chamfer_l2(points_a_3d, points_b_3d)
-    dist_l1 = chamfer_l1(points_a_3d, points_b_3d)
+    dist_l2 = chamfer_l2(points_a_3d, points_b_3d, weights1 = weights, weights2 = weights)
+    dist_l1 = chamfer_l1(points_a_3d, points_b_3d, weights1 = weights, weights2 = weights)
     
     # 验证结果
     print(f"测试简单2D点集...")
@@ -72,7 +75,9 @@ def test_complex_2d_case():
          [2.0, 3.0],
          [3.0, 3.0]]
     ], device=device)  # 形状为 [1, 4, 2]
-    
+    weights = torch.tensor([
+        [0.1, 0.1, 0.1, 0.5]
+    ], device=device)  # 权重为1
     # 将2D点转换为3D点（添加z=0）
     points_a_3d = torch.cat([points_a, torch.zeros_like(points_a[:,:,:1])], dim=2)
     points_b_3d = torch.cat([points_b, torch.zeros_like(points_b[:,:,:1])], dim=2)
@@ -90,8 +95,8 @@ def test_complex_2d_case():
     chamfer_l2 = ChamferDistanceL2()
     chamfer_l1 = ChamferDistanceL1()
     
-    dist_l2 = chamfer_l2(points_a_3d, points_b_3d)
-    dist_l1 = chamfer_l1(points_a_3d, points_b_3d)
+    dist_l2 = chamfer_l2(points_a_3d, points_b_3d, weights1 = weights, weights2 = weights)
+    dist_l1 = chamfer_l1(points_a_3d, points_b_3d, weights1 = weights, weights2 = weights)
     
     # L1距离是L2距离的平方根
     expected_l2 = 5.0  # 平均平方距离
