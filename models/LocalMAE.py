@@ -557,7 +557,7 @@ class LocalMAE(nn.Module):
         noisy_x = noisy_x * batch_mask
         
         return noisy_x
-    
+    # TODO:实现视觉mask效果
     def forward(self, x1, x2, 
                 mask1=None, mask2=None,
                 sample_contourl1=None, sample_contourl2=None,

@@ -65,7 +65,11 @@ def get_args_parser():
     parser.add_argument('--qkv_bias', action='store_true')
     parser.add_argument('--mask_ratio', default=0.75, type=float,
                         help='Masking ratio (percentage of removed patches).')
-    
+    parser.add_argument('--train_noise_ratio', type=float, default=0.0)
+    parser.add_argument('--train_noise_level', type=float, default=0.0)
+    parser.add_argument('--val_noise_ratio', type=float, default=0.0)
+    parser.add_argument('--val_noise_level', type=float, default=0.0)
+
     # Optimizer parameters
     parser.add_argument('--weight_decay', type=float, default=0.05,
                         help='weight decay (default: 0.05)')
@@ -141,7 +145,9 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
         label2 = label2.to(device, non_blocking=True)
 
         with torch.cuda.amp.autocast():  # 混合精度训练
-            pred = model(img1, img2, args.mask_ratio)  # 模型输出
+            pred = model(img1, img2, args.mask_ratio,
+                        noise_ratio=args.train_noise_ratio,
+                        noise_level=args.train_noise_level,)  # 模型输出
             delta_label = label2 - label1  # 计算标签的差值
             
             # 归一化标签
@@ -200,7 +206,9 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
             batch_size = img1.size(0)
             
             with torch.cuda.amp.autocast():  # 混合精度验证
-                pred = model(img1, img2, args.mask_ratio)
+                pred = model(img1, img2, args.mask_ratio,
+                            noise_ratio=args.val_noise_ratio,
+                            noise_level=args.val_noise_level,)
                 delta_label = label2 - label1
                 
                 # 归一化标签

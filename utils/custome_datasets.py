@@ -524,7 +524,7 @@ class CrossMAEDataset(Dataset):
                 img_template = 'image_'+class_name+'_0.png'
                 index0 = int(img_template.split('_')[-1].split('.')[0])
                 assert index0 == 0, 'The first image should be the template'
-                class_pairs = [(img_template, imgs[i]) 
+                class_pairs = [(imgs[i], img_template) 
                           for i in range(0,len(imgs))]
             else:
                 class_pairs = [(imgs[i], imgs[j]) 

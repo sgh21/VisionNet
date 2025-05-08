@@ -91,7 +91,11 @@ def get_args_parser():
     parser.add_argument('--pool_mode', type=str, default='mean', choices=['mean', 'max'])
     parser.add_argument('--sample_size', type=int, default=256)
     parser.add_argument('--use_ssim_loss', action='store_true')
-    
+    parser.add_argument('--train_noise_ratio', type=float, default=0.0)
+    parser.add_argument('--train_noise_level', type=float, default=0.0)
+    parser.add_argument('--val_noise_ratio', type=float, default=0.0)
+    parser.add_argument('--val_noise_level', type=float, default=0.0)
+
     # Optimizer parameters
     parser.add_argument('--weight_decay', type=float, default=0.05,
                         help='weight decay (default: 0.05)')
@@ -295,6 +299,8 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
                 mask2 =touch_img_mask2,
                 sample_contour1 = sample_contour1,
                 sample_contour2 = sample_contour2,
+                noise_ratio=args.train_noise_ratio,
+                noise_level=args.train_noise_level,
                 mask_ratio=args.mask_ratio, 
                 sigma=args.sigma, 
                 CXCY=args.CXCY
@@ -402,6 +408,8 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                     mask2=touch_img_mask2,
                     mask_ratio=args.mask_ratio, 
                     sigma=args.sigma, 
+                    noise_ratio=args.val_noise_ratio,
+                    noise_level=args.val_noise_level,
                     CXCY=args.CXCY
                 )
                 

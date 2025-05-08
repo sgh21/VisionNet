@@ -87,8 +87,60 @@ class CrossMAE(nn.Module):
                 torch.nn.init.xavier_uniform_(m.weight)
                 if m.bias is not None:
                     torch.nn.init.constant_(m.bias, 0)
-
-    def forward(self, x1, x2, mask_ratio=0.75):
+    def add_zero_noise(self, x, noise_ratio=0.0, noise_level=0.0):
+        """
+        以一定概率给图像添加零值噪声，噪声位置在各通道间保持一致（完全向量化实现）
+        
+        Args:
+            x (torch.Tensor): 输入图像，形状 [B, C, H, W]
+            noise_ratio (float): 应用噪声的概率，范围 [0, 1]
+            noise_level (float): 噪声的强度，即将多少比例的像素点(而非像素值)置为0，范围 [0, 1]
+            
+        Returns:
+            torch.Tensor: 应用噪声后的图像，形状与输入相同 [B, C, H, W]
+        """
+        if noise_ratio <= 0.0 or noise_level <= 0.0:
+            return x  # 如果噪声比例或噪声等级为0，直接返回原图像
+        
+        device = x.device
+        B, C, H, W = x.shape
+        
+        # 创建输出图像的副本
+        noisy_x = x.clone()
+        
+        # 为每个样本生成随机概率，决定是否应用噪声
+        apply_noise = torch.rand(B, device=device) < noise_ratio
+        
+        if not apply_noise.any():
+            return noisy_x  # 如果没有样本需要应用噪声，直接返回
+        
+        # 计算需要置为0的像素点数量
+        num_pixels = H * W
+        num_zeros = int(num_pixels * noise_level)
+        
+        # 创建批量掩码 [B, 1, H, W]，初始值全为1（保留所有像素）
+        batch_mask = torch.ones((B, 1, H, W), device=device)
+        
+        # 对需要添加噪声的样本创建噪声掩码
+        noise_indices = torch.nonzero(apply_noise, as_tuple=True)[0]
+        for idx in noise_indices:
+            # 为当前样本生成随机索引
+            flat_indices = torch.randperm(num_pixels, device=device)[:num_zeros]
+            h_indices = (flat_indices // W)
+            w_indices = flat_indices % W
+            
+            # 在相应位置设置掩码值为0
+            batch_mask[idx, 0, h_indices, w_indices] = 0.0
+        
+        # 应用掩码到所有通道
+        noisy_x = noisy_x * batch_mask
+        
+        return noisy_x
+    
+    def forward(self, x1, x2, mask_ratio=0.75, **kwargs):
+        noise_ratio = kwargs.get('noise_ratio', 0.0)
+        noise_level = kwargs.get('noise_level', 0.0)
+        x1 = self.add_zero_noise(x1, noise_ratio, noise_level)
         # Encoder features
         feat1, _mask1, _id_restore1, _ids_keep1 = self.encoder(x1, mask_ratio)  # [B, N, C] 
         keep_mask = {
