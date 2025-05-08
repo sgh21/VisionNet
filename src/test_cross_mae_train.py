@@ -185,7 +185,6 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
-
 def validate(model, data_loader, criterion, device, epoch, log_writer=None, args=None):
     model.eval()  # 设置模型为评估模式
     metric_logger = misc.MetricLogger(delimiter="  ")  # 用于记录和打印指标
@@ -196,6 +195,18 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
     total_y_mae = 0
     total_rz_mae = 0
 
+    # 用于图像可视化的反归一化
+    mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
+    std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
+    
+    def denormalize(img):
+        return img * std + mean
+    
+    # 收集可视化样本
+    vis_samples = []
+    vis_samples_noisy = []
+    vis_limit = 8  # 最多可视化8个样本
+
     with torch.no_grad():  # 在验证过程中不计算梯度
         for img1, img2, label1, label2 in metric_logger.log_every(data_loader, 20, header):
             img1 = img1.to(device, non_blocking=True)
@@ -205,10 +216,27 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
 
             batch_size = img1.size(0)
             
+            # 保存一些原始图像用于可视化
+            if len(vis_samples) < vis_limit:
+                # 只从第一个批次收集样本
+                num_to_collect = min(vis_limit - len(vis_samples), batch_size)
+                vis_samples.extend(denormalize(img1[:num_to_collect]).detach().cpu())
+            
             with torch.cuda.amp.autocast():  # 混合精度验证
+                # 在执行模型前应用噪声
+                if args.val_noise_ratio > 0 and args.val_noise_level > 0:
+                    # 应用噪声前先保存一些样本用于可视化
+                    if len(vis_samples_noisy) < vis_limit:
+                        # 复制测试图像并添加噪声
+                        img1_noisy = model.add_zero_noise(img1[:min(vis_limit - len(vis_samples_noisy), batch_size)], 
+                                                         noise_ratio=args.val_noise_ratio,
+                                                         noise_level=args.val_noise_level)
+                        vis_samples_noisy.extend(denormalize(img1_noisy).detach().cpu())
+                
+                # 执行模型前向推理
                 pred = model(img1, img2, args.mask_ratio,
                             noise_ratio=args.val_noise_ratio,
-                            noise_level=args.val_noise_level,)
+                            noise_level=args.val_noise_level)
                 delta_label = label2 - label1
                 
                 # 归一化标签
@@ -241,6 +269,26 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
         log_writer.add_scalar('val/mae_x_mm', avg_x_mae, epoch)
         log_writer.add_scalar('val/mae_y_mm', avg_y_mae, epoch)
         log_writer.add_scalar('val/mae_rz_deg', avg_rz_mae, epoch)
+        
+        # 可视化原始图像和带噪声的图像
+        if vis_samples and vis_samples_noisy:
+            # 将图像堆叠为网格
+            from torchvision.utils import make_grid
+            
+            # 创建原始图像网格
+            grid_orig = make_grid(vis_samples, nrow=4, normalize=True, padding=2)
+            log_writer.add_image('val/original_images', grid_orig, epoch)
+            
+            # 创建带噪声图像网格
+            grid_noisy = make_grid(vis_samples_noisy, nrow=4, normalize=True, padding=2)
+            log_writer.add_image('val/noisy_images', grid_noisy, epoch)
+            
+            # 创建对比图像（每行显示一对原始/噪声图像）
+            paired_imgs = []
+            for i in range(min(len(vis_samples), len(vis_samples_noisy))):
+                paired_imgs.extend([vis_samples[i], vis_samples_noisy[i]])
+            grid_paired = make_grid(paired_imgs, nrow=2, normalize=True, padding=2)
+            log_writer.add_image('val/original_vs_noisy', grid_paired, epoch)
 
     metric_logger.update(mae_x=avg_x_mae)
     metric_logger.update(mae_y=avg_y_mae)
@@ -255,6 +303,75 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
                  metric_logger.mae_rz.global_avg))
 
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+# def validate(model, data_loader, criterion, device, epoch, log_writer=None, args=None):
+#     model.eval()  # 设置模型为评估模式
+#     metric_logger = misc.MetricLogger(delimiter="  ")  # 用于记录和打印指标
+#     header = 'Test:'
+
+#     total_loss = 0
+#     total_x_mae = 0
+#     total_y_mae = 0
+#     total_rz_mae = 0
+
+#     with torch.no_grad():  # 在验证过程中不计算梯度
+#         for img1, img2, label1, label2 in metric_logger.log_every(data_loader, 20, header):
+#             img1 = img1.to(device, non_blocking=True)
+#             img2 = img2.to(device, non_blocking=True)
+#             label1 = label1.to(device, non_blocking=True)
+#             label2 = label2.to(device, non_blocking=True)
+
+#             batch_size = img1.size(0)
+            
+#             with torch.cuda.amp.autocast():  # 混合精度验证
+#                 pred = model(img1, img2, args.mask_ratio,
+#                             noise_ratio=args.val_noise_ratio,
+#                             noise_level=args.val_noise_level,)
+#                 delta_label = label2 - label1
+                
+#                 # 归一化标签
+#                 delta_label_norm = label_normalize(delta_label, loss_norm)
+#                 pred_norm = label_normalize(pred, loss_norm)
+#                 loss = criterion(pred_norm, delta_label_norm)
+                
+#                 # 反归一化并计算MAE
+#                 delta_label_real = label_denormalize(delta_label_norm, loss_norm)
+#                 pred_real = label_denormalize(pred_norm, loss_norm)
+#                 mae_x, mae_y, mae_rz = calculate_dim_mae(pred_real, delta_label_real)
+                
+#                 total_x_mae += mae_x.item() * batch_size
+#                 total_y_mae += mae_y.item() * batch_size
+#                 total_rz_mae += mae_rz.item() * batch_size
+#                 total_loss += loss.item() * batch_size
+
+#             metric_logger.update(loss=loss.item())  # 更新损失
+
+#     # 计算平均值
+#     num_samples = len(data_loader.dataset)
+#     avg_loss = total_loss / num_samples
+#     avg_x_mae = total_x_mae / num_samples
+#     avg_y_mae = total_y_mae / num_samples
+#     avg_rz_mae = total_rz_mae / num_samples
+    
+#     # 记录到tensorboard
+#     if log_writer is not None:
+#         log_writer.add_scalar('val/loss', avg_loss, epoch)
+#         log_writer.add_scalar('val/mae_x_mm', avg_x_mae, epoch)
+#         log_writer.add_scalar('val/mae_y_mm', avg_y_mae, epoch)
+#         log_writer.add_scalar('val/mae_rz_deg', avg_rz_mae, epoch)
+
+#     metric_logger.update(mae_x=avg_x_mae)
+#     metric_logger.update(mae_y=avg_y_mae)
+#     metric_logger.update(mae_rz=avg_rz_mae)
+
+#     # 同步并打印结果
+#     metric_logger.synchronize_between_processes()
+#     print('* Avg loss {:.3f}, MAE x {:.2f}mm, y {:.2f}mm, rz {:.2f}deg'
+#           .format(metric_logger.loss.global_avg,
+#                  metric_logger.mae_x.global_avg,
+#                  metric_logger.mae_y.global_avg,
+#                  metric_logger.mae_rz.global_avg))
+
+#     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 def main(args):
     print('job dir: {}'.format(os.path.dirname(os.path.realpath(__file__))))
