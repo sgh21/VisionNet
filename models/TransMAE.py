@@ -216,7 +216,7 @@ class TransMAE(nn.Module):
         )
         # !: 是否使用SSIM, 使用默认参数
         self.use_ssim_loss = use_ssim_loss
-        if self.use_ssim:
+        if self.use_ssim_loss:
             self.ssim_loss = SSIM(
                 win_size=11,
                 sigma=1.5,

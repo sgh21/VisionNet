@@ -6,7 +6,7 @@ import os
 import cv2
 from pathlib import Path
 from PIL import Image
-from ultralytics import YOLO
+# from ultralytics import YOLO
 from typing import Optional, Tuple, Dict, List, Union
 
 

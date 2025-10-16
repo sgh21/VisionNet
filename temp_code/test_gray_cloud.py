@@ -15,8 +15,8 @@ def test_terrain_point_cloud():
     """测试 TerrainPointCloud 模块，加载灰度图并生成可视化"""
     
     # 灰度图文件夹路径 - 请替换为你的灰度图所在文件夹
-    grayscale_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/masks/gray"
-    mask_dir = "/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/masks/binary"
+    grayscale_dir = "H:\WorkSpace\VisionNet\dataset\\visionnet_train_0411\data_all\masks\gray"
+    mask_dir = "H:\WorkSpace\VisionNet\dataset\\visionnet_train_0411\data_all\masks\\binary"
     # 设置需要加载的灰度图数量
     num_images_to_load = 4 # 可以根据需要修改
     
@@ -59,7 +59,7 @@ def test_terrain_point_cloud():
             tensor = transform(img)  # [1, H, W]
             
             # 生成梯田图
-            terrace_map, _ = terrace_map_generator(mask)
+            terrace_map, _ = terrace_map_generator(mask, serial='3524P')
             terrace_map = transform(terrace_map)  # 转换为张量
             tensor = terrace_map*tensor  # 将梯田图应用于灰度图
             grayscale_tensors.append(tensor)
@@ -73,7 +73,8 @@ def test_terrain_point_cloud():
     
     # 将张量堆叠为批次
     batch_tensor = torch.stack(grayscale_tensors)  # [B, 1, H, W]
-    batch_tensor = batch_tensor.cuda()
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    batch_tensor = batch_tensor.to(device)
     print(f"批次张量形状: {tuple(batch_tensor.shape)}")
     
     # 创建 TerrainPointCloud 实例
@@ -107,7 +108,7 @@ def test_terrain_point_cloud():
     return point_clouds
 
 def create_detailed_visualizations(grayscale_tensor, point_clouds, image_names, output_dir):
-    """创建更详细的点云可视化"""
+    """Create detailed point cloud visualizations"""
     
     batch_size = grayscale_tensor.size(0)
     
@@ -145,7 +146,7 @@ def create_detailed_visualizations(grayscale_tensor, point_clouds, image_names, 
         w = ((point_cloud_np[:, 0] + 1) / 2) * (gray_np.shape[1] - 1)
         
         scatter = ax3.scatter(w, h, c=point_cloud_np[:, 2], s=10, cmap='plasma', alpha=0.7)
-        ax3.set_title('2D sampling')
+        ax3.set_title('2D Sampling')
         ax3.axis('off')
         plt.colorbar(scatter, ax=ax3)
         
@@ -161,9 +162,9 @@ def create_detailed_visualizations(grayscale_tensor, point_clouds, image_names, 
             alpha=0.8
         )
         ax4.set_title('3D Point Cloud (Default View)')
-        ax4.set_xlabel('X轴')
-        ax4.set_ylabel('Y轴')
-        ax4.set_zlabel('Z轴')
+        ax4.set_xlabel('X-axis')
+        ax4.set_ylabel('Y-axis')
+        ax4.set_zlabel('Z-axis')
         plt.colorbar(scatter, ax=ax4, shrink=0.6)
         
         # 3D 点云 (俯视图)
@@ -179,9 +180,9 @@ def create_detailed_visualizations(grayscale_tensor, point_clouds, image_names, 
         )
         ax5.view_init(elev=90, azim=0)  # 俯视图
         ax5.set_title('3D Point Cloud (Top View)')
-        ax5.set_xlabel('X轴')
-        ax5.set_ylabel('Y轴')
-        ax5.set_zlabel('Z轴')
+        ax5.set_xlabel('X-axis')
+        ax5.set_ylabel('Y-axis')
+        ax5.set_zlabel('Z-axis')
         
         # 3D 点云 (侧视图)
         ax6 = fig.add_subplot(236, projection='3d')
@@ -196,23 +197,23 @@ def create_detailed_visualizations(grayscale_tensor, point_clouds, image_names, 
         )
         ax6.view_init(elev=0, azim=90)  # 侧视图
         ax6.set_title('3D Point Cloud (Side View)')
-        ax6.set_xlabel('X轴')
-        ax6.set_ylabel('Y轴')
-        ax6.set_zlabel('Z轴')
+        ax6.set_xlabel('X-axis')
+        ax6.set_ylabel('Y-axis')
+        ax6.set_zlabel('Z-axis')
         
         # 添加图像信息
-        fig.suptitle(f'图像: {image_name}', fontsize=16)
+        fig.suptitle(f'Image: {image_name}', fontsize=16)
         
         # 添加点云统计信息
         info_text = (
-            f"点云信息:\n"
-            f"• 点数: {point_cloud_np.shape[0]}\n"
-            f"• 最小Z值: {point_cloud_np[:, 2].min():.3f}\n"
-            f"• 最大Z值: {point_cloud_np[:, 2].max():.3f}\n"
-            f"• 平均Z值: {point_cloud_np[:, 2].mean():.3f}\n"
-            f"• Z值标准差: {point_cloud_np[:, 2].std():.3f}\n"
-            f"• 零值点比例: {np.sum(point_cloud_np[:, 2] == 0) / point_cloud_np.shape[0]:.2%}\n"
-            f"• 灰度非零比例: {non_zero_ratio:.2%}"
+            f"Point Cloud Information:\n"
+            # f"• Points: {point_cloud_np.shape[0]}\n"
+            # f"• Min Z: {point_cloud_np[:, 2].min():.3f}\n"
+            # f"• Max Z: {point_cloud_np[:, 2].max():.3f}\n"
+            # f"• Mean Z: {point_cloud_np[:, 2].mean():.3f}\n"
+            # f"• Z Std Dev: {point_cloud_np[:, 2].std():.3f}\n"
+            # f"• Zero Value Ratio: {np.sum(point_cloud_np[:, 2] == 0) / point_cloud_np.shape[0]:.2%}\n"
+            # f"• Non-zero Grayscale Ratio: {non_zero_ratio:.2%}"
         )
         fig.text(0.01, 0.02, info_text, fontsize=10, 
                  bbox=dict(facecolor='white', alpha=0.8))
@@ -222,7 +223,7 @@ def create_detailed_visualizations(grayscale_tensor, point_clouds, image_names, 
         # 保存图像
         output_path = os.path.join(output_dir, f"{image_name}_point_cloud.png")
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"已保存可视化到: {output_path}")
+        print(f"Visualization saved to: {output_path}")
         
         plt.close()
         
@@ -241,10 +242,10 @@ def create_detailed_visualizations(grayscale_tensor, point_clouds, image_names, 
         )
         
         ax.set_title(f'{image_name} 3D Point Cloud', fontsize=14)
-        ax.set_xlabel('X轴')
-        ax.set_ylabel('Y轴')
-        ax.set_zlabel('Z轴')
-        plt.colorbar(scatter, ax=ax, shrink=0.6, label='高度值')
+        ax.set_xlabel('X-axis')
+        ax.set_ylabel('Y-axis')
+        ax.set_zlabel('Z-axis')
+        plt.colorbar(scatter, ax=ax, shrink=0.6, label='Height Value')
         
         # 保存不同视角
         for angle in [0, 45, 90, 135, 180, 225, 270, 315]:

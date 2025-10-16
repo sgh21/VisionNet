@@ -1,0 +1,22 @@
+2025-05-13 19:59:59,504 - INFO - 正在扫描源目录: H:\WorkSpace\BTBInsertion\experiments\vision_data_0513\bright\labels
+2025-05-13 19:59:59,553 - INFO - 找到 0 个源文件
+2025-05-13 19:59:59,554 - INFO - 正在扫描目标目录: H:\WorkSpace\BTBInsertion\experiments\vision_data_0513\bright\rgb_images
+2025-05-13 19:59:59,623 - INFO - 找到 1350 个目标文件
+2025-05-13 19:59:59,638 - INFO - 处理完成!
+2025-05-13 19:59:59,638 - INFO - 匹配并复制的文件数: 0
+2025-05-13 19:59:59,638 - INFO - 未找到匹配的文件数: 1350
+2025-05-13 19:59:59,640 - INFO - 未找到匹配的文件列表已保存到: H:\WorkSpace\BTBInsertion\experiments\vision_data_0513\dark\labels\not_found_files.txt
+2025-05-13 20:01:20,225 - INFO - 正在扫描源目录: H:\WorkSpace\BTBInsertion\experiments\vision_data_0513\bright\labels
+2025-05-13 20:01:20,412 - INFO - 找到 3150 个源文件
+2025-05-13 20:01:20,412 - INFO - 正在扫描目标目录: H:\WorkSpace\BTBInsertion\experiments\vision_data_0513\bright\rgb_images
+2025-05-13 20:01:20,484 - INFO - 找到 1350 个目标文件
+2025-05-13 20:01:21,317 - INFO - 处理完成!
+2025-05-13 20:01:21,317 - INFO - 匹配并复制的文件数: 1350
+2025-05-13 20:01:21,317 - INFO - 未找到匹配的文件数: 0
+2025-05-13 20:02:30,117 - INFO - 正在扫描源目录: H:\WorkSpace\BTBInsertion\experiments\vision_data_0513\bright\labels
+2025-05-13 20:02:30,305 - INFO - 找到 3150 个源文件
+2025-05-13 20:02:30,305 - INFO - 正在扫描目标目录: H:\WorkSpace\BTBInsertion\experiments\vision_data_0513\dark\rgb_images
+2025-05-13 20:02:30,402 - INFO - 找到 1800 个目标文件
+2025-05-13 20:02:31,482 - INFO - 处理完成!
+2025-05-13 20:02:31,482 - INFO - 匹配并复制的文件数: 1800
+2025-05-13 20:02:31,482 - INFO - 未找到匹配的文件数: 0

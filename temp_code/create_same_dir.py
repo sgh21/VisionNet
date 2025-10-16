@@ -19,7 +19,7 @@ def setup_logging():
 
 def get_all_image_files(directory):
     """获取目录下所有图片文件的路径和文件名"""
-    image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp']
+    image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp', '.txt']
     files_dict = {}
     
     for root, _, files in os.walk(directory):
@@ -114,9 +114,9 @@ def create_matching_dir_structure(source_dir, target_dir, output_base_dir, copy_
 def main():
     # 设置命令行参数
     parser = argparse.ArgumentParser(description='复制与目标目录中文件名匹配的源目录图片，保持源目录结构')
-    parser.add_argument('--source', '-s', default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/data_all/rgb_masks', help='源目录路径')
-    parser.add_argument('--target', '-t', default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision/train/images', help='目标目录路径')
-    parser.add_argument('--output', '-o', default='/home/sgh/data/WorkSpace/VisionNet/dataset/visionnet_train_0411/vision/train/rgb_masks', help='输出目录路径')
+    parser.add_argument('--source', '-s', default='H:\WorkSpace\BTBInsertion\experiments\\vision_data_0513\\bright\labels', help='源目录路径')
+    parser.add_argument('--target', '-t', default='H:\WorkSpace\BTBInsertion\experiments\\vision_data_0513\\dark\\rgb_images', help='目标目录路径')
+    parser.add_argument('--output', '-o', default='H:\WorkSpace\BTBInsertion\experiments\\vision_data_0513\\dark\labels', help='输出目录路径')
     parser.add_argument('--copy-nonmatching', action='store_true', help='复制未匹配的文件')
     
     args = parser.parse_args()
