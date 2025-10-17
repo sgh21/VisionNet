@@ -4,7 +4,8 @@ from functools import partial
 from timm.models.vision_transformer import PatchEmbed, Block
 from utils.pos_embed import get_2d_sincos_pos_embed
 from models.Footshone import MAEEncoder, CrossAttention, MaskPatchPooling
-from extensions.chamfer_dist import *
+# from extensions.chamfer_dist import *
+from chamferdist import ChamferDistance
 from utils.TransUtils import GlobalIlluminationAlignment as IlluminationAlignment
 from utils.TransUtils import SSIM
 
@@ -32,7 +33,7 @@ class MAEEncoder(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim), requires_grad=False)  # fixed sin-cos embedding
 
         self.blocks = nn.ModuleList([
-            Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer)
+            Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True,  norm_layer=norm_layer)
             for i in range(depth)])
         self.norm = norm_layer(embed_dim)
         # --------------------------------------------------------------------------
@@ -216,7 +217,7 @@ class TransMAE(nn.Module):
         )
         # !: 是否使用SSIM, 使用默认参数
         self.use_ssim_loss = use_ssim_loss
-        if self.use_ssim:
+        if self.use_ssim_loss:
             self.ssim_loss = SSIM(
                 win_size=11,
                 sigma=1.5,
@@ -252,7 +253,8 @@ class TransMAE(nn.Module):
         )
         self.use_chamfer_dist = use_chamfer_dist
         if self.use_chamfer_dist:
-            self.chamfer_dist = ChamferDistanceL2() if chamfer_dist_type == 'L2' else ChamferDistanceL1()
+            p = 2 if chamfer_dist_type == 'L2' else 1
+            self.chamfer_dist = ChamferDistance()
 
         self.illumination_alignment = None
         if illumination_alignment:
@@ -325,7 +327,7 @@ class TransMAE(nn.Module):
             mask2_ds = self.downsample_mask(mask2, target_size=(x2.shape[2], x2.shape[3]))
             # 仅保留掩码的第一个通道，作为灰度掩码
             threshold = 0.05
-            mask1_ds = (mask1_ds > threshold).float()
+            mask1_ds = (mask1_ds > threshold).float() # !: 二值化掩码，考虑不二值化
             mask2_ds = (mask2_ds > threshold).float()
             x1 = x1 * mask1_ds
             x2 = x2 * mask2_ds
@@ -581,6 +583,7 @@ class TransMAE(nn.Module):
         
         # 计算MSE损失并应用权重
         if self.use_ssim_loss:
+            print("Using SSIM loss")
             # 使用SSIM损失
             ssim_loss, loss_map = self.ssim_loss(x1, x2, full=True, wo_light=True, loss=True)
         else:
@@ -679,7 +682,6 @@ class TransMAE(nn.Module):
         x1 = self.add_zero_noise(x1, noise_ratio, noise_level)
         # 从低分辨率图像预测变换参数
         pred = self.forward_pred(x1, x2, mask_ratio=mask_ratio, **kwargs)
-
         # 计算损失 - 优先使用高分辨率图像
         if high_res_x1 is not None and high_res_x2 is not None:
             # 应用相同的变换参数到高分辨率图像
@@ -734,7 +736,7 @@ def create_transmae_model(
     **kwargs
 ):
     # 捕获所有参数的值并打印
-    print("\033[1;36;40mCreating CrossMAE model......\033[0m")
+    print("\033[1;36;40mCreating TransMAE model......\033[0m")
     print(f"img_size: {img_size}")
     print(f"patch_size: {patch_size}")
     print(f"in_chans: {in_chans}")

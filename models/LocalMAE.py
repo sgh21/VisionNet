@@ -6,7 +6,7 @@ from utils.pos_embed import get_2d_sincos_pos_embed
 from extensions.chamfer_dist import *
 from models.Footshone import MAEEncoder, CrossAttention
 from utils.TransUtils import GlobalIlluminationAlignment, TerrainPointCloud
-
+#!: YOLO mask版本，没有点云对齐损失？
 class MAEEncoder(nn.Module):
 
     """ Masked Autoencoder with VisionTransformer backbone
@@ -188,7 +188,7 @@ class LocalMAE(nn.Module):
         feature_dim=3,
         drop_rate=0.1,
         use_chamfer_dist=False,
-        use_value_as_weight=False,
+        use_value_as_weights=False,
         chamfer_dist_type='L2',
         illumination_alignment=False,
         mask_weight=False,
@@ -223,7 +223,7 @@ class LocalMAE(nn.Module):
         self.cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
         
         self.terrainPointCloud = TerrainPointCloud(
-            target_points=2048,
+            target_points=3072,
             min_value=0.01,
             stride=2,
             normalize_coords=True,
@@ -231,7 +231,7 @@ class LocalMAE(nn.Module):
         )
 
         self.use_chamfer_dist = use_chamfer_dist
-        self.use_value_as_weight = use_value_as_weight
+        self.use_value_as_weight = use_value_as_weights
         if self.use_chamfer_dist:
             self.chamfer_dist = ChamferDistanceL2() if chamfer_dist_type == 'L2' else ChamferDistanceL1()
         
@@ -580,12 +580,12 @@ class LocalMAE(nn.Module):
         # 从低分辨率图像预测变换参数
         pred = self.forward_pred(x1, x2, mask1=mask1, mask2=mask2, mask_ratio = mask_ratio, **kwargs)
         
-        pointcloud_loss = 0
+        pointcloud_loss = torch.zeros(1, device=x1.device)
         if mask1 is not None and mask2 is not None:
             mask2 = self.forward_transfer(mask2, pred, CXCY=CXCY)
             pointcloud_loss = self.forward_pointcloud_loss(mask1, mask2)
 
-        chamfer_loss = 0
+        chamfer_loss = torch.zeros(1, device=x1.device)
         if self.use_chamfer_dist and sample_contourl1 is not None and sample_contourl2 is not None:
             # 计算Chamfer距离损失
             chamfer_loss = self.forward_chamfer_loss(sample_contourl1, sample_contourl2)

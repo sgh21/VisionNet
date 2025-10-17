@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from timm.models.layers import to_2tuple
+from timm.layers import to_2tuple
 from timm.models.vision_transformer import PatchEmbed, Block
 from utils.pos_embed import get_2d_sincos_pos_embed
 
@@ -193,6 +193,7 @@ class MAEEncoderGate(nn.Module):
         
         x, mask, ids_restore, ids_keep = self.random_masking(x, mask_ratio, keep_mask = keep_mask)
         
+        # !: 不知道什么作用
         lambda_x = self.forward_gate_channel(x) # (B, N, 1)
         # append cls token
         cls_token = self.cls_token + self.pos_embed[:, :1, :]

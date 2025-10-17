@@ -17,8 +17,6 @@ import torchvision.transforms as transforms
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 
-
-import timm.optim.optim_factory as optim_factory
 import utils.misc as misc
 import utils.lr_sched as lr_sched
 from utils.misc import NativeScalerWithGradNormCount as NativeScaler
@@ -38,7 +36,7 @@ def load_yaml_config(yaml_path):
     args = get_default_args()
     
     # 读取yaml配置
-    with open(yaml_path, 'r') as f:
+    with open(yaml_path, 'r', encoding='utf-8') as f:
         yaml_cfg = yaml.safe_load(f)
     
     # 更新参数
@@ -50,7 +48,7 @@ def load_yaml_config(yaml_path):
     return args
 
 def get_args_parser():
-    parser = argparse.ArgumentParser('CrossMAE training', add_help=False)
+    parser = argparse.ArgumentParser('TransMAE training', add_help=False)
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--epochs', default=100, type=int)
     parser.add_argument('--accum_iter', default=1, type=int)
@@ -130,7 +128,7 @@ def get_args_parser():
     parser.add_argument('--config', type=str, default='',
                         help='path to yaml config file')
     return parser
-loss_norm = [2.5, 2.5, 1] # x,y,rz的归一化权重
+loss_norm = [5.0, 2.5, 1] # x,y,rz的归一化权重
 def label_normalize(label, weight=[10, 5, 20]):
     weight = torch.tensor(weight).to(label.device)
     label = label * weight
@@ -254,6 +252,19 @@ def calculate_dim_mae(pred, target):
     mae_rz = torch.mean(torch.abs(pred[:,2] - target[:,2]))
     return mae_x, mae_y, mae_rz
 
+def param_groups_lrd(model, weight_decay=0.05, no_weight_decay_list=()):
+    decay, no_decay = [], []
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        if len(param.shape) == 1 or name.endswith(".bias") or name in no_weight_decay_list:
+            no_decay.append(param)
+        else:
+            decay.append(param)
+    return [
+        {'params': decay, 'weight_decay': weight_decay},
+        {'params': no_decay, 'weight_decay': 0.}
+    ]
 def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.Optimizer, criterion, 
                     device: torch.device, epoch: int, loss_scaler, log_writer=None, args=None):
     model.train()  # 设置模型为训练模式
@@ -289,7 +300,7 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
         label1 = label1.to(device, non_blocking=True)
         label2 = label2.to(device, non_blocking=True)
 
-        with torch.cuda.amp.autocast():  # 混合精度训练
+        with torch.amp.autocast(device_type='cuda'):  # 混合精度训练
             pred, trans_diff_loss, chamfer_loss, img2_trans = model(
                 img1, img2, 
                 high_res_x1=high_res_img1, 
@@ -320,7 +331,7 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
         loss_value = loss.item()
         pred_loss_value = pred_loss.item()
         trans_diff_loss_value = trans_diff_loss.item()
-        chamfer_loss_value = chamfer_loss.item()
+        chamfer_loss_value = chamfer_loss
 
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value))
@@ -398,7 +409,7 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
 
             batch_size = img1.size(0)
             
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast(device_type='cuda', enabled=True):
                 pred, trans_diff_loss, chamfer_loss, img2_trans = model(
                     img1, img2, 
                     high_res_x1=high_res_img1, 
@@ -693,7 +704,8 @@ def main(args):
     print("actual lr: %.2e" % args.lr)
 
     # 使用AdamW优化器
-    param_groups = optim_factory.add_weight_decay(model, args.weight_decay)
+    param_groups = param_groups_lrd(model, args.weight_decay)
+    # param_groups = optim_factory.add_weight_decay(model, args.weight_decay)
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
     print(optimizer)
     loss_scaler = NativeScaler()

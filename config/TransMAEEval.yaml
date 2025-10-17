@@ -1,0 +1,47 @@
+# ==================================================
+#           TransMAE 模型 - 验证专用配置文件
+# ==================================================
+# 该文件仅包含模型推理和数据加载所需的参数。
+# 训练相关参数（如优化器、学习率、epochs）已被移除。
+
+# --- 数据集配置 ---
+# 确保该路径指向包含验证集的数据目录
+data_path: ./dataset/vision_touch_0411/eval
+eval_data_folder: val_bright   # 验证集文件夹名称
+num_workers: 4
+batch_size: 32 # 可根据显存调整
+use_fix_template: true
+pair_downsample: 1
+checkpoint_path: "./weights/eval/transmae_test.pth"
+
+# --- 图像尺寸 ---
+input_size: 224 
+high_res_size: 560
+
+# --- 模型核心参数 (必须与训练时保持一致) ---
+model: transmae_vit_base
+embed_dim: 768
+depth: 12
+encoder_num_heads: 12
+cross_num_heads: 12
+mlp_ratio: 4
+feature_dim: 3
+qkv_bias: true
+mask_ratio: 0.0 # 验证时通常不使用mask，设为0.0
+
+# --- 模型行为配置 (必须与训练时保持一致) ---
+method: touch_mask
+illumination_alignment: false
+use_chamfer_dist: true
+chamfer_dist_type: 'L2'
+use_ssim_loss: False
+use_mask_weight: True
+pool_mode: 'mean'
+sigma: [0.6, 0.3] # 仅在 method='gaussian' 时生效
+CXCY: [-0.0102543, -0.0334525] # 旋转中心，与训练时保持一致
+
+
+# --- 其他配置 ---
+intensity_scaling: [0.0, 0.6, 0.8, 1.0]
+edge_enhancement: 1.0
+sample_size : 2048

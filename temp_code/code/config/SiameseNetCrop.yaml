@@ -1,0 +1,51 @@
+# 数据集配置
+train_image_dir: "./dataset/train_data_crop_new_0116/train/images"
+train_label_dir: "./dataset/train_data_crop_new_0116/train/labels"
+test_image_dir: "./dataset/train_data_crop_new_0116/val/images"
+test_label_dir: "./dataset/train_data_crop_new_0116/val/labels"
+
+# 训练参数
+batch_size: 16
+num_workers: 4
+epochs: 300
+use_cuda: true
+pretrained: false
+pair_downsample: 0.3
+loss_norm: [10, 5, 20]
+
+# 模型参数
+feature_dim: 3
+layer_width: [256, 64]
+embedding_width: [64]
+using_embedding: false
+
+# 优化器配置
+# optimizer: "SGD"
+# optimizer_params:
+#   lr: 0.01                # 学习率
+#   momentum: 0.9           # 动量因子
+#   weight_decay: 0.0001    # L2正则化系数
+#   dampening: 0            # 动量抑制因子
+#   nesterov: true          # 是否使用Nesterov动量
+
+optimizer: "Adam"
+optimizer_params:
+  lr: 0.001              # 学习率
+  betas: [0.9, 0.999]    # 一阶/二阶矩估计的指数衰减率
+  # eps: 1e-8              # 数值稳定性常数
+  weight_decay: 0.0001   # L2正则化系数
+  amsgrad: false         # 是否使用AMSGrad变体
+
+# 数据增强参数
+aug_scale: [0.8, 1.0]
+aug_flip_prob: 0.5
+aug_brightness: 0.2
+aug_contrast: 0.2
+aug_saturation: 0.2
+
+# 路径配置
+checkpoint_dir: "./experiment/checkpoints"
+log_dir: "./experiment/logs"
+
+# 设备配置
+gpu_id: 0

@@ -1,0 +1,24 @@
+# 模型参数
+input_size: 224
+embed_dim: 768
+depth: 12
+model: crossmae_vit_base
+encoder_num_heads: 12
+cross_num_heads: 12
+mlp_ratio: 4.0
+feature_dim: 3
+qkv_bias: true
+mask_ratio: 0.0
+noise_level: 0.0
+
+
+# 评估参数
+weights: "./weights/crossmae_vit_base_touch.pth" # change to your model path
+data_path: "./dataset/train_data_0227/train_data_touch/"
+batch_size: 128
+num_workers: 4
+pair_downsample: 0.1
+device: "cuda"
+output_dir: "./experiment/crossmae/eval/exp_base_mr0.0_bias_0227/train_eval_sr0.1_new_noise0.0"
+curve_type: gaussian
+optimizer_type: mse

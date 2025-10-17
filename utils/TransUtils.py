@@ -6,7 +6,7 @@ import os
 import cv2
 from pathlib import Path
 from PIL import Image
-from ultralytics import YOLO
+# from ultralytics import YOLO
 from typing import Optional, Tuple, Dict, List, Union
 
 
@@ -1014,7 +1014,7 @@ class TerraceMapGenerator:
         """
         mask = np.zeros(shape, dtype=np.uint8)
         box_points = cv2.boxPoints(rect)
-        box_points = np.int0(box_points)
+        box_points = np.intp(box_points)
         cv2.fillPoly(mask, [box_points], 255)
         return mask
     
