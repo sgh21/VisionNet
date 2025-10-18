@@ -556,10 +556,10 @@ class TransMAE(nn.Module):
                 # 应用变换到权重图
                 transformed_weight_map = self.forward_transfer(batch_weight_map, params, CXCY=CXCY)
                 # raise ValueError("For 'touch_mask' method, 'mask1' and 'mask2' must be provided.")
-            
-            transformed_mask2 = self.forward_transfer(mask2, params, CXCY=CXCY)
-            # 将两张图像的掩码结合
-            transformed_weight_map = torch.max(mask1, transformed_mask2)
+            else:
+                transformed_mask2 = self.forward_transfer(mask2, params, CXCY=CXCY)
+                # 将两张图像的掩码结合
+                transformed_weight_map = torch.max(mask1, transformed_mask2)
             
             # 归一化权重图，使权重总和为像素数量
             pixel_count = H * W
