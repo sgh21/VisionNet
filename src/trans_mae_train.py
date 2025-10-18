@@ -20,7 +20,7 @@ from PIL import Image
 import utils.misc as misc
 import utils.lr_sched as lr_sched
 from utils.misc import NativeScalerWithGradNormCount as NativeScaler
-import models.TransMAE as transmae
+import models_eval.TransMAE as transmae
 from utils.custome_datasets import TransMAEDataset
 from config import INTRINSIC
 
@@ -85,10 +85,8 @@ def get_args_parser():
     parser.add_argument('--gamma', type=float, default=1.0)
     parser.add_argument('--use_chamfer_dist', type=bool, default=True)
     parser.add_argument('--chamfer_dist_type', type=str, default='L2', choices=['L1', 'L2'])
-    parser.add_argument('--use_mask_weight', action='store_true')
-    parser.add_argument('--pool_mode', type=str, default='mean', choices=['mean', 'max'])
+    parser.add_argument('--use_mask', action='store_true')
     parser.add_argument('--sample_size', type=int, default=256)
-    parser.add_argument('--use_ssim_loss', action='store_true')
     parser.add_argument('--train_noise_ratio', type=float, default=0.0)
     parser.add_argument('--train_noise_level', type=float, default=0.0)
     parser.add_argument('--val_noise_ratio', type=float, default=0.0)
@@ -301,22 +299,38 @@ def train_one_epoch(model: torch.nn.Module, data_loader, optimizer: torch.optim.
         label2 = label2.to(device, non_blocking=True)
 
         with torch.amp.autocast(device_type='cuda'):  # 混合精度训练
-            pred, trans_diff_loss, chamfer_loss, img2_trans = model(
-                img1, img2, 
-                high_res_x1=high_res_img1, 
-                high_res_x2=high_res_img2,
-                method = args.method,
-                mask1 =touch_img_mask1,
-                mask2 =touch_img_mask2,
-                sample_contour1 = sample_contour1,
-                sample_contour2 = sample_contour2,
-                noise_ratio=args.train_noise_ratio,
-                noise_level=args.train_noise_level,
-                mask_ratio=args.mask_ratio, 
-                sigma=args.sigma, 
-                CXCY=args.CXCY
-            )
-
+            if args.use_mask:
+                pred, trans_diff_loss, chamfer_loss, img2_trans = model(
+                    img1, img2, 
+                    high_res_x1=high_res_img1, 
+                    high_res_x2=high_res_img2,
+                    method = args.method,
+                    mask1 =touch_img_mask1,
+                    mask2 =touch_img_mask2,
+                    sample_contour1 = sample_contour1,
+                    sample_contour2 = sample_contour2,
+                    noise_ratio=args.train_noise_ratio,
+                    noise_level=args.train_noise_level,
+                    mask_ratio=args.mask_ratio, 
+                    sigma=args.sigma, 
+                    CXCY=args.CXCY
+                )
+            else:
+                pred, trans_diff_loss, chamfer_loss, img2_trans = model(
+                    img1, img2, 
+                    high_res_x1=high_res_img1, 
+                    high_res_x2=high_res_img2,
+                    method = args.method,
+                    mask1 =None,
+                    mask2 =None,
+                    sample_contour1 = sample_contour1,
+                    sample_contour2 = sample_contour2,
+                    noise_ratio=args.train_noise_ratio,
+                    noise_level=args.train_noise_level,
+                    mask_ratio=args.mask_ratio, 
+                    sigma=args.sigma, 
+                    CXCY=args.CXCY
+                )
             
             delta_label = label2 - label1  # 计算标签的差值 （B,3）
 
@@ -410,20 +424,34 @@ def validate(model, data_loader, criterion, device, epoch, log_writer=None, args
             batch_size = img1.size(0)
             
             with torch.amp.autocast(device_type='cuda', enabled=True):
-                pred, trans_diff_loss, chamfer_loss, img2_trans = model(
-                    img1, img2, 
-                    high_res_x1=high_res_img1, 
-                    high_res_x2=high_res_img2,
-                    method = args.method,
-                    mask1=touch_img_mask1,
-                    mask2=touch_img_mask2,
-                    mask_ratio=args.mask_ratio, 
-                    sigma=args.sigma, 
-                    noise_ratio=args.val_noise_ratio,
-                    noise_level=args.val_noise_level,
-                    CXCY=args.CXCY
-                )
-                
+                if args.use_mask:
+                    pred, trans_diff_loss, chamfer_loss, img2_trans = model(
+                        img1, img2, 
+                        high_res_x1=high_res_img1, 
+                        high_res_x2=high_res_img2,
+                        method = args.method,
+                        mask1=touch_img_mask1,
+                        mask2=touch_img_mask2,
+                        mask_ratio=args.mask_ratio, 
+                        sigma=args.sigma, 
+                        noise_ratio=args.val_noise_ratio,
+                        noise_level=args.val_noise_level,
+                        CXCY=args.CXCY
+                    )
+                else:
+                    pred, trans_diff_loss, chamfer_loss, img2_trans = model(
+                        img1, img2, 
+                        high_res_x1=high_res_img1, 
+                        high_res_x2=high_res_img2,
+                        method = args.method,
+                        mask1=None,
+                        mask2=None,
+                        mask_ratio=args.mask_ratio, 
+                        sigma=args.sigma, 
+                        noise_ratio=args.val_noise_ratio,
+                        noise_level=args.val_noise_level,
+                        CXCY=args.CXCY
+                    )
                 delta_label = label2 - label1
                 
                 pred_vector = create_pred_vector(pred, intrinsic=INTRINSIC,img_size=[560, 560])
@@ -684,11 +712,6 @@ def main(args):
         qkv_bias=args.qkv_bias,
         illumination_alignment=args.illumination_alignment,
         use_chamfer_dist=args.use_chamfer_dist,
-        chamfer_dist_type=args.chamfer_dist_type,
-        use_mask_weight=args.use_mask_weight,
-        pool_mode=args.pool_mode,
-        mask_size=args.high_res_size,
-        use_ssim_loss=args.use_ssim_loss,
     )
 
     model.to(device)

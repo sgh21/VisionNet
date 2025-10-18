@@ -7,7 +7,6 @@ from models.Footshone import MAEEncoder, CrossAttention, MaskPatchPooling
 # from extensions.chamfer_dist import *
 from chamferdist import ChamferDistance
 from utils.TransUtils import GlobalIlluminationAlignment as IlluminationAlignment
-from utils.TransUtils import SSIM
 
 class MAEEncoder(nn.Module):
 
@@ -215,27 +214,7 @@ class TransMAE(nn.Module):
             pretrained_path=pretrained_path,
             remove_class_token=remove_class_token
         )
-        # !: 是否使用SSIM, 使用默认参数
-        self.use_ssim_loss = use_ssim_loss
-        if self.use_ssim_loss:
-            self.ssim_loss = SSIM(
-                win_size=11,
-                sigma=1.5,
-                k1=0.01,
-                k2=0.03,
-                gaussian_weights=True,
-                use_sample_covariance=True,
-            )
 
-        # !: 是否使用mask权重
-        self.use_mask_weight = use_mask_weight
-        if self.use_mask_weight:
-            mask_ratio = mask_size / img_size
-            self.mask_patch_pooling = MaskPatchPooling(
-                img_size=mask_size,
-                patch_size=int(patch_size*mask_ratio),
-                pool_mode=pool_mode
-            )
         # 交叉注意力模块
         # !: 需要检查注意力模块儿是对谁进行注意力计算的
         self.cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
@@ -253,7 +232,6 @@ class TransMAE(nn.Module):
         )
         self.use_chamfer_dist = use_chamfer_dist
         if self.use_chamfer_dist:
-            p = 2 if chamfer_dist_type == 'L2' else 1
             self.chamfer_dist = ChamferDistance()
 
         self.illumination_alignment = None
@@ -582,12 +560,8 @@ class TransMAE(nn.Module):
         weights = transformed_weight_map.expand(B, C, H, W)
         
         # 计算MSE损失并应用权重
-        if self.use_ssim_loss:
-            print("Using SSIM loss")
-            # 使用SSIM损失
-            ssim_loss, loss_map = self.ssim_loss(x1, x2, full=True, wo_light=True, loss=True)
-        else:
-            loss_map = torch.nn.functional.mse_loss(x1, x2, reduction='none')
+        
+        loss_map = torch.nn.functional.mse_loss(x1, x2, reduction='none')
         loss = (loss_map * weights).sum() / (B * C * H * W)
         
         return loss

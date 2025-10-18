@@ -31,7 +31,7 @@ intensity_scaling: [0.0, 0.7, 0.9, 1.0]
 edge_enhancement: 1.0
 illumination_alignment: true
 use_chamfer_dist: false
-use_ssim_loss: false
+use_mask: true
 # noise_ratio: 0.3
 # noise_level: 0.5
 
