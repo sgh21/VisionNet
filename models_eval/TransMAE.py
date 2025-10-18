@@ -192,10 +192,13 @@ class TransMAE(nn.Module):
         pretrained_path=None,
         illumination_alignment=False,
         use_chamfer_dist=False,
+        use_cross_attention=True,
         match_variance=True,
     ):
         super().__init__()
-    
+
+        # !:是否去除class token
+        self.remove_class_token = remove_class_token
         # MAE Encoder
         self.encoder = MAEEncoder(
             img_size=img_size,
@@ -212,7 +215,9 @@ class TransMAE(nn.Module):
 
         # 交叉注意力模块
         # !: 需要检查注意力模块儿是对谁进行注意力计算的
-        self.cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
+        self.use_cross_attention = use_cross_attention
+        if use_cross_attention:
+            self.cross_attention = CrossAttention(embed_dim, num_heads=cross_num_heads, dropout=drop_rate, qkv_bias=qkv_bias)
         
         self.fc_norm = norm_layer(embed_dim)
         self.feat_norm = norm_layer(embed_dim*2)
@@ -235,18 +240,19 @@ class TransMAE(nn.Module):
                 match_variance=match_variance,
                 per_channel=True,
             )
-            
+        
         self.initialize_weights() 
 
     def initialize_weights(self):
         """初始化新增网络层的参数"""
         # 初始化CrossAttention中的线性层
-        for name, p in self.cross_attention.named_parameters():
-            if 'weight' in name:
-                if len(p.shape) > 1:  # 线性层权重
-                    torch.nn.init.xavier_uniform_(p)
-            elif 'bias' in name:
-                torch.nn.init.constant_(p, 0)
+        if self.use_cross_attention:
+            for name, p in self.cross_attention.named_parameters():
+                if 'weight' in name:
+                    if len(p.shape) > 1:  # 线性层权重
+                        torch.nn.init.xavier_uniform_(p)
+                elif 'bias' in name:
+                    torch.nn.init.constant_(p, 0)
 
         # 初始化LayerNorm
         torch.nn.init.constant_(self.fc_norm.bias, 0)
@@ -319,13 +325,22 @@ class TransMAE(nn.Module):
         # !: 根据官方的实现，在交叉注意力前加入了LayerNorm
         # *： 测试表明，加入LayerNorm后效果没有明显变化
         # !: 归一化层似乎用错了，对于query和context应该使用不同的归一化层
-        feat1_cross = self.cross_attention(feat1, feat2)  # [B, N, C] 
-        feat2_cross = self.cross_attention(feat2, feat1)  # [B, N, C]
+        if self.use_cross_attention:
+            feat1_cross = self.cross_attention(feat1, feat2)  # [B, N, C] 
+            feat2_cross = self.cross_attention(feat2, feat1)  # [B, N, C]
+        else:
+            feat1_cross = feat1
+            feat2_cross = feat2
         
         # Feature fusion
-        feat1_fusion = feat1_cross.mean(dim=1)  # [B, C]
+        if self.remove_class_token:
+            feat1_fusion = feat1_cross.mean(dim=1)  # [B, C]
+            feat2_fusion = feat2_cross.mean(dim=1)
+        else:
+            feat1_fusion = feat1_cross[:, 0, :]  # [B, C]
+            feat2_fusion = feat2_cross[:, 0, :]
+        
         feat1_fusion = self.fc_norm(feat1_fusion) # [B, C]
-        feat2_fusion = feat2_cross.mean(dim=1)
         feat2_fusion = self.fc_norm(feat2_fusion)
 
         feat_fusion = torch.cat([feat1_fusion, feat2_fusion], dim=1)  # [B, 2C]
@@ -509,7 +524,7 @@ class TransMAE(nn.Module):
         # 将基础权重图扩展到批次大小
         batch_weight_map = self.base_weight_map.expand(B, 1, H, W)
         return batch_weight_map
-
+    # !：尝试不去除class token的版本
     def forward_loss(self, x1, x2, params, CXCY=None, method = 'gaussian', **kwargs):
         """
         计算两个图像之间的MSE损失，权重图会随图像变换而变换
@@ -537,7 +552,10 @@ class TransMAE(nn.Module):
             mask1 = kwargs.get('mask1', None) # [B, 1, H, W]
             mask2 = kwargs.get('mask2', None) # [B, 1, H, W]
             if mask1 is None or mask2 is None:
-                raise ValueError("For 'touch_mask' method, 'mask1' and 'mask2' must be provided.")
+                batch_weight_map = self.forwrd_weights_map(shape, device, method=method, **kwargs)
+                # 应用变换到权重图
+                transformed_weight_map = self.forward_transfer(batch_weight_map, params, CXCY=CXCY)
+                # raise ValueError("For 'touch_mask' method, 'mask1' and 'mask2' must be provided.")
             
             transformed_mask2 = self.forward_transfer(mask2, params, CXCY=CXCY)
             # 将两张图像的掩码结合

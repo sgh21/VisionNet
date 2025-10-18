@@ -84,6 +84,8 @@ def get_args_parser():
     parser.add_argument('--illumination_alignment', type=bool, default=False)
     parser.add_argument('--gamma', type=float, default=1.0)
     parser.add_argument('--use_chamfer_dist', type=bool, default=True)
+    parser.add_argument('--use_cross_attention', type=bool, default=True)
+    parser.add_argument('--remove_class_token', type=bool, default=True)
     parser.add_argument('--chamfer_dist_type', type=str, default='L2', choices=['L1', 'L2'])
     parser.add_argument('--use_mask', action='store_true')
     parser.add_argument('--sample_size', type=int, default=256)
@@ -711,7 +713,9 @@ def main(args):
         pretrained_path=args.mae_pretrained,
         qkv_bias=args.qkv_bias,
         illumination_alignment=args.illumination_alignment,
+        remove_class_token=args.remove_class_token,
         use_chamfer_dist=args.use_chamfer_dist,
+        use_cross_attention=args.use_cross_attention,
     )
 
     model.to(device)

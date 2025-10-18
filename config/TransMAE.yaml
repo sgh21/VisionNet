@@ -18,7 +18,7 @@ mlp_ratio: 4
 mask_ratio: 0.0 # 在下游任务时，默认不使用mask
 feature_dim: 3
 qkv_bias: true # 带bias会些许提高模型性能
-cross_attention: false
+
 add_noise: false
 beta: 0.5
 lambda_start: 0.1
@@ -31,6 +31,8 @@ intensity_scaling: [0.0, 0.7, 0.9, 1.0]
 edge_enhancement: 1.0
 illumination_alignment: true
 use_chamfer_dist: false
+use_cross_attention: false
+remove_class_token: true
 use_mask: true
 # noise_ratio: 0.3
 # noise_level: 0.5
@@ -42,7 +44,7 @@ lr: null
 blr: 0.001 # 优化器的学习率,学习率太大会收敛变慢，学习率小收敛快，但容易陷入局部最优，减小学习率可以提高模型最终性能
 min_lr: 0   # 当回归头层数变少时，学习率变小并没有让模型具有更好的逼近能力
 warmup_epochs: 10 # warmup没有太明显的影响，设置1范围为5-10%的范围即可
-sigma: 0.5
+# sigma: 0.5
 
 # 数据增强参数
 pair_downsample: 1
